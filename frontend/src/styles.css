@@ -1,0 +1,120 @@
+:root {
+  color-scheme: light;
+  --bg: #f4f0e8;
+  --surface: rgba(255, 250, 241, 0.78);
+  --ink: #13261f;
+  --muted: #52625a;
+  --accent: #c96b2c;
+  --accent-2: #1f7a63;
+  --line: rgba(19, 38, 31, 0.12);
+  font-family: "Georgia", "Iowan Old Style", serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background:
+    radial-gradient(circle at top left, rgba(201, 107, 44, 0.24), transparent 28%),
+    radial-gradient(circle at bottom right, rgba(31, 122, 99, 0.22), transparent 32%),
+    linear-gradient(135deg, #ece4d6 0%, #f7f3ec 48%, #efe7d8 100%);
+  color: var(--ink);
+}
+
+#root {
+  min-height: 100vh;
+}
+
+.app-shell {
+  display: grid;
+  grid-template-columns: minmax(280px, 420px) 1fr;
+  min-height: 100vh;
+}
+
+.hero-panel,
+.map-panel {
+  padding: 2rem;
+}
+
+.hero-panel {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 1rem;
+}
+
+.eyebrow {
+  margin: 0;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--accent-2);
+  font-size: 0.85rem;
+}
+
+.hero-panel h1 {
+  margin: 0;
+  font-size: clamp(2.5rem, 4vw, 4.8rem);
+  line-height: 0.94;
+  max-width: 10ch;
+}
+
+.body-copy {
+  margin: 0;
+  max-width: 34ch;
+  color: var(--muted);
+  font-size: 1.05rem;
+  line-height: 1.7;
+}
+
+.map-panel {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.map-placeholder {
+  width: 100%;
+  min-height: 72vh;
+  border: 1px solid var(--line);
+  border-radius: 28px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.72), rgba(255, 255, 255, 0.38)),
+    repeating-linear-gradient(
+      90deg,
+      transparent 0,
+      transparent 69px,
+      rgba(19, 38, 31, 0.05) 70px
+    ),
+    repeating-linear-gradient(
+      0deg,
+      transparent 0,
+      transparent 69px,
+      rgba(19, 38, 31, 0.05) 70px
+    );
+  box-shadow: 0 24px 60px rgba(57, 42, 20, 0.12);
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+  font-size: 1.05rem;
+}
+
+@media (max-width: 900px) {
+  .app-shell {
+    grid-template-columns: 1fr;
+  }
+
+  .hero-panel {
+    padding-bottom: 0;
+  }
+
+  .hero-panel h1 {
+    max-width: 12ch;
+  }
+
+  .map-placeholder {
+    min-height: 48vh;
+  }
+}
