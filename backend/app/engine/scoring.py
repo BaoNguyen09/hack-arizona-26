@@ -130,7 +130,8 @@ def compute_carbon_value_per_mwh(
     # - 1 MWh = 1000 kWh
     # - 1 ton = 1,000,000 g (1e6 g)
     # Grid intensity: X gCO2 per kWh
-    # For 1 MWh (1000 kWh): X * 1000 gCO2 = X * 1000 / 1e6 tons = X / 1000 tons CO2 per MWh
+    # For 1 MWh (1000 kWh): X * 1000 gCO2 = X * 1000 / 1e6 tons
+    # = X / 1000 tons CO2 per MWh
     tons_co2_per_mwh = grid_carbon_intensity_g_per_kwh / 1000.0
 
     # Carbon value = tons/MWh * $/ton = $/MWh
@@ -176,7 +177,9 @@ def compute_composite_score(
     return score
 
 
-def compute_annual_generation_mwh(capacity_mw: float, capacity_factor: np.ndarray) -> np.ndarray:
+def compute_annual_generation_mwh(
+    capacity_mw: float, capacity_factor: np.ndarray
+) -> np.ndarray:
     """Compute estimated annual generation in MWh.
 
     Annual_MWh = Capacity_MW * CF * 8760 hours/year * 1000 kW/MW / 1000 kWh/MWh
@@ -229,8 +232,7 @@ def score_all_cells(
 
     # Compute CRF once
     crf = compute_capital_recovery_factor(
-        scenario.discount_rate,
-        scenario.project_lifetime_years
+        scenario.discount_rate, scenario.project_lifetime_years
     )
 
     # Compute component scores (all vectorized)
@@ -306,26 +308,30 @@ def score_single_cell(
     carbon_intensity = np.array([row["carbon_g_per_kwh_mean"]])
 
     crf = compute_capital_recovery_factor(
-        scenario.discount_rate,
-        scenario.project_lifetime_years
+        scenario.discount_rate, scenario.project_lifetime_years
     )
 
     # Compute all components
-    lcoe = compute_lcoe_per_mwh(cf, scenario.capex_usd_per_kw, scenario.opex_usd_per_kw_year, crf)[0]
+    lcoe = compute_lcoe_per_mwh(
+        cf, scenario.capex_usd_per_kw, scenario.opex_usd_per_kw_year, crf
+    )[0]
     revenue = compute_revenue_per_mwh(cf, price)[0]
-    carbon_value = compute_carbon_value_per_mwh(cf, carbon_intensity, scenario.carbon_price_usd_per_ton)[0]
+    carbon_value = compute_carbon_value_per_mwh(
+        cf, carbon_intensity, scenario.carbon_price_usd_per_ton
+    )[0]
 
     annual_gen_mwh = compute_annual_generation_mwh(scenario.capacity_mw, cf)[0]
     annual_gen_gwh = annual_gen_mwh / 1000.0
 
     # Compute component breakdowns for LCOE
     annualized_capex_per_kw = scenario.capex_usd_per_kw * crf
-    annual_cost_per_kw = annualized_capex_per_kw + scenario.opex_usd_per_kw_year
     annual_gen_per_kw = cf[0] * 8760.0
 
     if annual_gen_per_kw > 0:
         capex_share = (annualized_capex_per_kw / annual_gen_per_kw) * 1000.0  # $/MWh
-        opex_share = (scenario.opex_usd_per_kw_year / annual_gen_per_kw) * 1000.0  # $/MWh
+        opex_share = (
+            scenario.opex_usd_per_kw_year / annual_gen_per_kw
+        ) * 1000.0  # $/MWh
     else:
         capex_share = np.inf
         opex_share = np.inf
@@ -338,7 +344,8 @@ def score_single_cell(
     annual_revenue = annual_gen_mwh * revenue / 1e6  # millions USD
     # carbon_intensity is in gCO2/kWh.
     # For 1 MWh (1000 kWh), emissions displaced = g/kWh * 1000 kWh = g/MWh.
-    # Convert g to tons: 1 ton = 1,000,000 g. So tons/MWh = (g/kWh * 1000) / 1e6 = g/kWh / 1000.
+    # Convert g to tons: 1 ton = 1,000,000 g.
+    # So tons/MWh = (g/kWh * 1000) / 1e6 = g/kWh / 1000.
     annual_carbon_tons = annual_gen_mwh * (carbon_intensity[0] / 1000.0)  # tons CO2
     annual_carbon_value = annual_carbon_tons * scenario.carbon_price_usd_per_ton
 

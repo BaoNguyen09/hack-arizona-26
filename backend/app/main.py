@@ -22,7 +22,9 @@ async def lifespan(app: FastAPI):
         store.load(settings.processed_dataset_path)
         print(f"Loaded {store.row_count} cells from {settings.processed_dataset_path}")
     except FileNotFoundError:
-        print(f"Warning: Processed dataset not found at {settings.processed_dataset_path}")
+        print(
+            f"Warning: Processed dataset not found at {settings.processed_dataset_path}"
+        )
         print("API will return errors until data is available.")
     except ValueError as e:
         print(f"Warning: Processed dataset validation failed: {e}")

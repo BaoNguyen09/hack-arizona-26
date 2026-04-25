@@ -13,7 +13,6 @@ Covers:
 import pytest
 from fastapi.testclient import TestClient
 
-
 SOLAR_PAYLOAD = {
     "technology": "solar",
     "capacity_mw": 50.0,
@@ -33,6 +32,7 @@ WIND_PAYLOAD = {**SOLAR_PAYLOAD, "technology": "wind"}
 # ---------------------------------------------------------------------------
 # Unloaded behaviour — store has no data
 # ---------------------------------------------------------------------------
+
 
 class TestHeatmapUnloaded:
     def test_returns_503(self, client: TestClient) -> None:
@@ -54,12 +54,15 @@ class TestSiteUnloaded:
 # Heatmap — loaded store
 # ---------------------------------------------------------------------------
 
+
 class TestHeatmapLoaded:
     def test_returns_200(self, loaded_client: TestClient) -> None:
         response = loaded_client.post("/heatmap", json=SOLAR_PAYLOAD)
         assert response.status_code == 200
 
-    def test_response_has_required_top_level_fields(self, loaded_client: TestClient) -> None:
+    def test_response_has_required_top_level_fields(
+        self, loaded_client: TestClient
+    ) -> None:
         body = loaded_client.post("/heatmap", json=SOLAR_PAYLOAD).json()
         for field in ("technology", "score_min", "score_max", "cell_count", "cells"):
             assert field in body, f"Missing field: {field}"
@@ -74,7 +77,9 @@ class TestHeatmapLoaded:
         scores = [c["score"] for c in cells]
         assert scores == sorted(scores), "Cells must be sorted ascending by score"
 
-    def test_score_min_max_consistent_with_cells(self, loaded_client: TestClient) -> None:
+    def test_score_min_max_consistent_with_cells(
+        self, loaded_client: TestClient
+    ) -> None:
         body = loaded_client.post("/heatmap", json=SOLAR_PAYLOAD).json()
         scores = [c["score"] for c in body["cells"]]
         assert pytest.approx(body["score_min"], rel=1e-6) == min(scores)
@@ -83,9 +88,14 @@ class TestHeatmapLoaded:
     def test_cell_has_required_fields(self, loaded_client: TestClient) -> None:
         cell = loaded_client.post("/heatmap", json=SOLAR_PAYLOAD).json()["cells"][0]
         for field in (
-            "cell_id", "lat", "lon", "score",
-            "raw_capacity_factor", "raw_lcoe_usd_per_mwh",
-            "raw_revenue_usd_per_mwh", "raw_carbon_value_usd_per_mwh",
+            "cell_id",
+            "lat",
+            "lon",
+            "score",
+            "raw_capacity_factor",
+            "raw_lcoe_usd_per_mwh",
+            "raw_revenue_usd_per_mwh",
+            "raw_carbon_value_usd_per_mwh",
         ):
             assert field in cell, f"Missing cell field: {field}"
 
@@ -96,7 +106,9 @@ class TestHeatmapLoaded:
         body_wind = loaded_client.post("/heatmap", json=WIND_PAYLOAD).json()
         assert body_wind["technology"] == "wind"
 
-    def test_solar_and_wind_produce_different_scores(self, loaded_client: TestClient) -> None:
+    def test_solar_and_wind_produce_different_scores(
+        self, loaded_client: TestClient
+    ) -> None:
         solar_scores = {
             c["cell_id"]: c["score"]
             for c in loaded_client.post("/heatmap", json=SOLAR_PAYLOAD).json()["cells"]
@@ -138,6 +150,7 @@ class TestHeatmapLoaded:
 # Site — loaded store
 # ---------------------------------------------------------------------------
 
+
 class TestSiteLoaded:
     def test_returns_200_by_cell_id(self, loaded_client: TestClient) -> None:
         response = loaded_client.get("/site?cell_id=tx_001&technology=solar")
@@ -165,11 +178,19 @@ class TestSiteLoaded:
     def test_site_has_all_metric_fields(self, loaded_client: TestClient) -> None:
         site = loaded_client.get("/site?cell_id=tx_001&technology=solar").json()["site"]
         for field in (
-            "cell_id", "lat", "lon",
-            "solar_cf_mean", "wind_cf_mean", "selected_cf_mean",
-            "lcoe_usd_per_mwh", "lcoe_components", "capex_total_usd_millions",
-            "avg_wholesale_price_usd_per_mwh", "estimated_annual_revenue_usd_millions",
-            "grid_carbon_intensity_g_per_kwh", "annual_carbon_displacement_tons",
+            "cell_id",
+            "lat",
+            "lon",
+            "solar_cf_mean",
+            "wind_cf_mean",
+            "selected_cf_mean",
+            "lcoe_usd_per_mwh",
+            "lcoe_components",
+            "capex_total_usd_millions",
+            "avg_wholesale_price_usd_per_mwh",
+            "estimated_annual_revenue_usd_millions",
+            "grid_carbon_intensity_g_per_kwh",
+            "annual_carbon_displacement_tons",
             "carbon_value_usd_per_mwh",
         ):
             assert field in site, f"Missing site field: {field}"
@@ -185,7 +206,9 @@ class TestSiteLoaded:
         response = loaded_client.get("/site?cell_id=does_not_exist")
         assert response.status_code == 404
 
-    def test_missing_all_lookup_params_returns_404(self, loaded_client: TestClient) -> None:
+    def test_missing_all_lookup_params_returns_404(
+        self, loaded_client: TestClient
+    ) -> None:
         # No cell_id and no lat/lon → ValueError in service → 404
         response = loaded_client.get("/site?technology=solar")
         assert response.status_code == 404
@@ -201,6 +224,7 @@ class TestSiteLoaded:
 # ---------------------------------------------------------------------------
 # Stub endpoints
 # ---------------------------------------------------------------------------
+
 
 class TestStubs:
     def test_brief_stub_returns_200(self, client: TestClient) -> None:

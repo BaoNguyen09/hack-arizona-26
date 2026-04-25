@@ -2,7 +2,6 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-
 TechnologyType = Literal["solar", "wind"]
 
 
@@ -15,53 +14,43 @@ class ScenarioRequest(BaseModel):
 
     technology: TechnologyType = Field(
         default="solar",
-        description="Renewable technology type: solar PV or onshore wind"
+        description="Renewable technology type: solar PV or onshore wind",
     )
     capacity_mw: float = Field(
-        default=50.0,
-        gt=0,
-        description="Target capacity in megawatts"
+        default=50.0, gt=0, description="Target capacity in megawatts"
     )
     capex_usd_per_kw: float = Field(
         default=1200.0,
         gt=0,
-        description="Capital expenditure per kW of capacity (USD/kW)"
+        description="Capital expenditure per kW of capacity (USD/kW)",
     )
     opex_usd_per_kw_year: float = Field(
-        default=35.0,
-        ge=0,
-        description="Fixed O&M costs per kW per year (USD/kW/year)"
+        default=35.0, ge=0, description="Fixed O&M costs per kW per year (USD/kW/year)"
     )
     discount_rate: float = Field(
         default=0.06,
         ge=0,
         le=1,
-        description="Project discount rate for LCOE calculation"
+        description="Project discount rate for LCOE calculation",
     )
     project_lifetime_years: int = Field(
-        default=25,
-        ge=1,
-        description="Expected project lifetime in years"
+        default=25, ge=1, description="Expected project lifetime in years"
     )
     carbon_price_usd_per_ton: float = Field(
         default=50.0,
         ge=0,
-        description="Social cost of carbon or carbon credit price (USD/ton CO2)"
+        description="Social cost of carbon or carbon credit price (USD/ton CO2)",
     )
     cost_weight: float = Field(
-        default=1.0,
-        ge=0,
-        description="Weight for LCOE minimization in composite score"
+        default=1.0, ge=0, description="Weight for LCOE minimization in composite score"
     )
     revenue_weight: float = Field(
-        default=1.0,
-        ge=0,
-        description="Weight for revenue potential in composite score"
+        default=1.0, ge=0, description="Weight for revenue potential in composite score"
     )
     carbon_weight: float = Field(
         default=1.0,
         ge=0,
-        description="Weight for carbon displacement value in composite score"
+        description="Weight for carbon displacement value in composite score",
     )
 
 
@@ -101,8 +90,7 @@ class HeatmapResponse(BaseModel):
     score_min: float = Field(description="Minimum score across all cells")
     score_max: float = Field(description="Maximum score across all cells")
     score_unit: str = Field(
-        default="composite_score",
-        description="Unit/description of the score field"
+        default="composite_score", description="Unit/description of the score field"
     )
     cell_count: int = Field(description="Number of cells in response")
     cells: list[ScoredCell] = Field(
@@ -114,20 +102,13 @@ class SiteRequest(BaseModel):
     """Request to get detailed metrics for a specific cell."""
 
     cell_id: str | None = Field(
-        default=None,
-        description="Cell identifier (alternative to lat/lon)"
+        default=None, description="Cell identifier (alternative to lat/lon)"
     )
     lat: float | None = Field(
-        default=None,
-        ge=-90,
-        le=90,
-        description="Latitude for nearest-cell lookup"
+        default=None, ge=-90, le=90, description="Latitude for nearest-cell lookup"
     )
     lon: float | None = Field(
-        default=None,
-        ge=-180,
-        le=180,
-        description="Longitude for nearest-cell lookup"
+        default=None, ge=-180, le=180, description="Longitude for nearest-cell lookup"
     )
 
     def get_lookup_key(self) -> tuple[str, float | None, float | None]:
@@ -154,16 +135,16 @@ class SiteMetrics(BaseModel):
     solar_cf_mean: float = Field(description="Mean solar capacity factor (0-1)")
     wind_cf_mean: float = Field(description="Mean wind capacity factor (0-1)")
     selected_technology: TechnologyType
-    selected_cf_mean: float = Field(description="Capacity factor for selected tech (0-1)")
+    selected_cf_mean: float = Field(
+        description="Capacity factor for selected tech (0-1)"
+    )
     estimated_annual_generation_gwh: float = Field(
         description="Estimated annual generation at requested capacity (GWh/year)"
     )
 
     # Cost metrics
     lcoe_usd_per_mwh: float = Field(description="Levelized cost of energy (USD/MWh)")
-    lcoe_components: dict = Field(
-        description="LCOE breakdown: capex_share, opex_share"
-    )
+    lcoe_components: dict = Field(description="LCOE breakdown: capex_share, opex_share")
     capex_total_usd_millions: float = Field(
         description="Total CAPEX for requested capacity (millions USD)"
     )
@@ -176,9 +157,7 @@ class SiteMetrics(BaseModel):
     estimated_annual_revenue_usd_millions: float = Field(
         description="Estimated annual revenue (millions USD)"
     )
-    revenue_per_mwh_usd: float = Field(
-        description="Revenue per MWh (USD/MWh)"
-    )
+    revenue_per_mwh_usd: float = Field(description="Revenue per MWh (USD/MWh)")
 
     # Carbon metrics
     grid_carbon_intensity_g_per_kwh: float = Field(
@@ -222,5 +201,7 @@ class HealthResponse(BaseModel):
     """Simple health check response."""
 
     status: str
-    store_loaded: bool = Field(default=False, description="Whether processed data is loaded")
+    store_loaded: bool = Field(
+        default=False, description="Whether processed data is loaded"
+    )
     store_row_count: int = Field(default=0, description="Number of cells in store")

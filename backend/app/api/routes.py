@@ -6,6 +6,7 @@ and site investigation (/site).
 
 from fastapi import APIRouter, HTTPException, Query
 
+from backend.app.data.processed_store import get_store
 from backend.app.schemas.scenario import (
     HealthResponse,
     HeatmapResponse,
@@ -15,8 +16,6 @@ from backend.app.schemas.scenario import (
 )
 from backend.app.services.heatmap import build_heatmap_response
 from backend.app.services.site import get_site_response
-from backend.app.data.processed_store import get_store
-from backend.app.core.config import settings
 
 router = APIRouter()
 
@@ -54,16 +53,22 @@ def heatmap(payload: ScenarioRequest) -> HeatmapResponse:
     try:
         return build_heatmap_response(payload)
     except RuntimeError as e:
-        raise HTTPException(status_code=503, detail=str(e))
+        raise HTTPException(status_code=503, detail=str(e)) from e
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error computing scores: {e}")
+        raise HTTPException(
+            status_code=500, detail=f"Error computing scores: {e}"
+        ) from e
 
 
 @router.get("/site", response_model=SiteResponse)
 def site(
     cell_id: str | None = Query(None, description="Cell identifier"),
-    lat: float | None = Query(None, ge=-90, le=90, description="Latitude for nearest lookup"),
-    lon: float | None = Query(None, ge=-180, le=180, description="Longitude for nearest lookup"),
+    lat: float | None = Query(
+        None, ge=-90, le=90, description="Latitude for nearest lookup"
+    ),
+    lon: float | None = Query(
+        None, ge=-180, le=180, description="Longitude for nearest lookup"
+    ),
     # Scenario parameters (using defaults from ScenarioRequest)
     technology: str = Query("solar", description="Technology: solar or wind"),
     capacity_mw: float = Query(50.0, gt=0, description="Capacity in MW"),
@@ -71,7 +76,9 @@ def site(
     opex_usd_per_kw_year: float = Query(35.0, ge=0, description="OPEX USD/kW/year"),
     discount_rate: float = Query(0.06, ge=0, le=1, description="Discount rate"),
     project_lifetime_years: int = Query(25, ge=1, description="Project lifetime years"),
-    carbon_price_usd_per_ton: float = Query(50.0, ge=0, description="Carbon price USD/ton"),
+    carbon_price_usd_per_ton: float = Query(
+        50.0, ge=0, description="Carbon price USD/ton"
+    ),
     cost_weight: float = Query(1.0, ge=0, description="Cost minimization weight"),
     revenue_weight: float = Query(1.0, ge=0, description="Revenue maximization weight"),
     carbon_weight: float = Query(1.0, ge=0, description="Carbon value weight"),
@@ -107,11 +114,13 @@ def site(
         return get_site_response(site_request, scenario)
 
     except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+        raise HTTPException(status_code=404, detail=str(e)) from e
     except RuntimeError as e:
-        raise HTTPException(status_code=503, detail=str(e))
+        raise HTTPException(status_code=503, detail=str(e)) from e
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error retrieving site: {e}")
+        raise HTTPException(
+            status_code=500, detail=f"Error retrieving site: {e}"
+        ) from e
 
 
 @router.post("/brief")

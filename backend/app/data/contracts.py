@@ -36,15 +36,31 @@ REQUIRED_COLUMNS: list[ColumnSpec] = [
     ColumnSpec("cell_id", "string", "Unique cell identifier"),
     ColumnSpec("lat", "float64", "Cell centroid latitude", -90.0, 90.0),
     ColumnSpec("lon", "float64", "Cell centroid longitude", -180.0, 180.0),
-    ColumnSpec("solar_cf_mean", "float64", "Mean solar capacity factor (0-1)", 0.0, 1.0),
+    ColumnSpec(
+        "solar_cf_mean", "float64", "Mean solar capacity factor (0-1)", 0.0, 1.0
+    ),
     ColumnSpec("wind_cf_mean", "float64", "Mean wind capacity factor (0-1)", 0.0, 1.0),
-    ColumnSpec("price_usd_per_mwh_mean", "float64", "Mean wholesale price USD/MWh", 0.0, None),
-    ColumnSpec("carbon_g_per_kwh_mean", "float64", "Mean grid carbon intensity gCO2/kWh", 0.0, None),
+    ColumnSpec(
+        "price_usd_per_mwh_mean", "float64", "Mean wholesale price USD/MWh", 0.0, None
+    ),
+    ColumnSpec(
+        "carbon_g_per_kwh_mean",
+        "float64",
+        "Mean grid carbon intensity gCO2/kWh",
+        0.0,
+        None,
+    ),
 ]
 
 # Optional columns that enhance the analysis but aren't strictly required
 OPTIONAL_COLUMNS: list[ColumnSpec] = [
-    ColumnSpec("nearest_transmission_km", "float64", "Distance to nearest transmission line (km)", 0.0, None),
+    ColumnSpec(
+        "nearest_transmission_km",
+        "float64",
+        "Distance to nearest transmission line (km)",
+        0.0,
+        None,
+    ),
     ColumnSpec("price_hub_id", "string", "Nearest wholesale price hub identifier"),
     ColumnSpec("grid_zone_id", "string", "Grid balancing authority or zone identifier"),
 ]
@@ -53,7 +69,8 @@ ALL_COLUMNS: list[ColumnSpec] = REQUIRED_COLUMNS + OPTIONAL_COLUMNS
 
 
 def validate_processed_artifact(gdf: gpd.GeoDataFrame | pd.DataFrame) -> dict:
-    """Validate that a GeoDataFrame or DataFrame matches the processed artifact contract.
+    """Validate that a GeoDataFrame or DataFrame matches the processed artifact
+    contract.
 
     Args:
         gdf: The data to validate
@@ -88,12 +105,18 @@ def validate_processed_artifact(gdf: gpd.GeoDataFrame | pd.DataFrame) -> dict:
         actual_dtype = str(col.dtype)
 
         if spec.dtype == "float64" and not pd.api.types.is_float_dtype(col):
-            result["type_errors"].append(f"{spec.name}: expected float64, got {actual_dtype}")
+            result["type_errors"].append(
+                f"{spec.name}: expected float64, got {actual_dtype}"
+            )
             result["valid"] = False
         elif spec.dtype == "string" and not pd.api.types.is_string_dtype(col):
             # Try to check if it can be treated as string/object
-            if not (pd.api.types.is_object_dtype(col) or pd.api.types.is_string_dtype(col)):
-                result["type_errors"].append(f"{spec.name}: expected string, got {actual_dtype}")
+            if not (
+                pd.api.types.is_object_dtype(col) or pd.api.types.is_string_dtype(col)
+            ):
+                result["type_errors"].append(
+                    f"{spec.name}: expected string, got {actual_dtype}"
+                )
                 result["valid"] = False
 
         # Check value ranges if specified
@@ -131,8 +154,8 @@ def get_column_names() -> dict[str, list[str]]:
 
 def print_validation_report(result: dict) -> None:
     """Print a human-readable validation report."""
-    print(f"Processed Artifact Validation Report")
-    print(f"=" * 50)
+    print("Processed Artifact Validation Report")
+    print("=" * 50)
     print(f"Valid: {result['valid']}")
     print(f"Row count: {result['row_count']}")
     print()
@@ -148,12 +171,12 @@ def print_validation_report(result: dict) -> None:
         print("No optional columns present")
 
     if result["type_errors"]:
-        print(f"\nType errors:")
+        print("\nType errors:")
         for err in result["type_errors"]:
             print(f"  - {err}")
 
     if result["range_errors"]:
-        print(f"\nRange errors:")
+        print("\nRange errors:")
         for err in result["range_errors"]:
             print(f"  - {err}")
 

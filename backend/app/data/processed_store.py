@@ -17,9 +17,9 @@ if TYPE_CHECKING:
 
 from backend.app.data.contracts import (
     LAYER_NAME,
-    validate_processed_artifact,
     get_column_names,
     print_validation_report,
+    validate_processed_artifact,
 )
 
 
@@ -40,7 +40,7 @@ class ProcessedStore:
     _is_loaded: bool = False
 
     @classmethod
-    def get_instance(cls) -> "ProcessedStore":
+    def get_instance(cls) -> ProcessedStore:
         """Get the singleton instance of the store."""
         if cls._instance is None:
             cls._instance = cls()
@@ -109,7 +109,9 @@ class ProcessedStore:
             result = validate_processed_artifact(df)
             if not result["valid"]:
                 print_validation_report(result)
-                raise ValueError("DataFrame validation failed against processed artifact contract")
+                raise ValueError(
+                    "DataFrame validation failed against processed artifact contract"
+                )
 
         self._df = df.copy()
         self._gdf = None
@@ -193,7 +195,9 @@ class ProcessedStore:
         if idx is None:
             # Fallback: slow path search (should be rare)
             try:
-                idx = int(self._gdf.geometry.equals(nearest_geom).to_numpy().nonzero()[0][0])
+                idx = int(
+                    self._gdf.geometry.equals(nearest_geom).to_numpy().nonzero()[0][0]
+                )
             except Exception:
                 return None
 
@@ -226,7 +230,9 @@ class ProcessedStore:
         elif technology == "wind":
             return self.get_column("wind_cf_mean")
         else:
-            raise ValueError(f"Unknown technology: {technology}. Use 'solar' or 'wind'.")
+            raise ValueError(
+                f"Unknown technology: {technology}. Use 'solar' or 'wind'."
+            )
 
     def get_summary_stats(self) -> dict:
         """Get summary statistics for the loaded dataset.
@@ -242,11 +248,18 @@ class ProcessedStore:
             "loaded": True,
             "row_count": len(self._df),
             "columns": list(self._df.columns),
-            "required_columns_present": all(c in self._df.columns for c in required_cols),
+            "required_columns_present": all(
+                c in self._df.columns for c in required_cols
+            ),
         }
 
         # Add numeric summaries for key columns
-        for col in ["solar_cf_mean", "wind_cf_mean", "price_usd_per_mwh_mean", "carbon_g_per_kwh_mean"]:
+        for col in [
+            "solar_cf_mean",
+            "wind_cf_mean",
+            "price_usd_per_mwh_mean",
+            "carbon_g_per_kwh_mean",
+        ]:
             if col in self._df.columns:
                 stats[f"{col}_range"] = {
                     "min": float(self._df[col].min()),

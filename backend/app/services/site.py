@@ -50,7 +50,9 @@ def get_site_response(request: SiteRequest, scenario: ScenarioRequest) -> SiteRe
     elif request.lat is not None and request.lon is not None:
         row = store.get_nearest_cell(request.lat, request.lon)
         if row is None:
-            raise ValueError(f"No cells found near lat={request.lat}, lon={request.lon}")
+            raise ValueError(
+                f"No cells found near lat={request.lat}, lon={request.lon}"
+            )
     else:
         raise ValueError("Must provide cell_id or both lat and lon")
 
@@ -92,7 +94,9 @@ def get_site_response(request: SiteRequest, scenario: ScenarioRequest) -> SiteRe
         annual_carbon_displacement_tons=scores["annual_carbon_displacement_tons"],
         carbon_value_usd_per_year=scores["annual_carbon_value_usd"],
         carbon_value_usd_per_mwh=scores["carbon_value_usd_per_mwh"],
-        nearest_transmission_km=float(row.get("nearest_transmission_km")) if pd.notna(row.get("nearest_transmission_km")) else None,
+        nearest_transmission_km=float(row.get("nearest_transmission_km"))
+        if pd.notna(row.get("nearest_transmission_km"))
+        else None,
         grid_zone_id=row.get("grid_zone_id"),
     )
 

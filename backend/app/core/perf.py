@@ -6,7 +6,8 @@ operations on ~3,500 cells.
 
 import functools
 import time
-from typing import Callable, ParamSpec, TypeVar
+from collections.abc import Callable
+from typing import ParamSpec, TypeVar
 
 P = ParamSpec("P")
 T = TypeVar("T")
@@ -21,6 +22,7 @@ def timed(name: str | None = None) -> Callable[[Callable[P, T]], Callable[P, T]]
     Returns:
         Decorated function that logs timing
     """
+
     def decorator(func: Callable[P, T]) -> Callable[P, T]:
         timer_name = name or func.__name__
 
@@ -34,6 +36,7 @@ def timed(name: str | None = None) -> Callable[[Callable[P, T]], Callable[P, T]]
                 print(f"[timing] {timer_name}: {elapsed_ms:.2f}ms")
 
         return wrapper
+
     return decorator
 
 

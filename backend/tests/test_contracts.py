@@ -9,15 +9,14 @@ import pytest
 from backend.app.data.contracts import (
     LAYER_NAME,
     REQUIRED_COLUMNS,
-    OPTIONAL_COLUMNS,
-    validate_processed_artifact,
     get_column_names,
+    validate_processed_artifact,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def make_valid_df(**overrides) -> pd.DataFrame:
     """Return a minimal valid DataFrame; overrides replace individual columns."""
@@ -38,6 +37,7 @@ def make_valid_df(**overrides) -> pd.DataFrame:
 # Layer name constant
 # ---------------------------------------------------------------------------
 
+
 def test_layer_name_is_lumen_cells() -> None:
     assert LAYER_NAME == "lumen_cells"
 
@@ -45,6 +45,7 @@ def test_layer_name_is_lumen_cells() -> None:
 # ---------------------------------------------------------------------------
 # Valid DataFrame passes
 # ---------------------------------------------------------------------------
+
 
 def test_valid_dataframe_passes() -> None:
     result = validate_processed_artifact(make_valid_df())
@@ -73,6 +74,7 @@ def test_valid_with_optional_columns_detected() -> None:
 # Missing required columns
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.parametrize("missing_col", [c.name for c in REQUIRED_COLUMNS])
 def test_missing_required_column_fails(missing_col: str) -> None:
     df = make_valid_df()
@@ -85,6 +87,7 @@ def test_missing_required_column_fails(missing_col: str) -> None:
 # ---------------------------------------------------------------------------
 # Range violations
 # ---------------------------------------------------------------------------
+
 
 def test_solar_cf_above_one_fails() -> None:
     result = validate_processed_artifact(make_valid_df(solar_cf_mean=[1.5, 0.2]))
@@ -117,13 +120,16 @@ def test_lon_out_of_range_fails() -> None:
 
 
 def test_price_at_zero_is_valid() -> None:
-    result = validate_processed_artifact(make_valid_df(price_usd_per_mwh_mean=[0.0, 34.0]))
+    result = validate_processed_artifact(
+        make_valid_df(price_usd_per_mwh_mean=[0.0, 34.0])
+    )
     assert result["valid"] is True
 
 
 # ---------------------------------------------------------------------------
 # get_column_names helper
 # ---------------------------------------------------------------------------
+
 
 def test_get_column_names_has_expected_keys() -> None:
     names = get_column_names()

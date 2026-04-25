@@ -15,7 +15,6 @@ from fastapi.testclient import TestClient
 from backend.app.data.processed_store import ProcessedStore
 from backend.app.main import app
 
-
 # ---------------------------------------------------------------------------
 # Minimal 5-cell dataset covering the required contract columns
 # ---------------------------------------------------------------------------
