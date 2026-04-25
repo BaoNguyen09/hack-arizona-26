@@ -32,6 +32,7 @@ Lumen is a renewable energy cost optimization intelligence platform that turns w
 - FastAPI service for `/health`, `/heatmap`, `/site`, and future `/brief` and `/query` routes
 - NumPy vectorized optimization engine for LCOE, revenue, carbon value, and composite scoring
 - Physics models for PVWatts-style solar and IEC-style wind generation
+- Developer docs: see [docs/api-harness.md](/Users/shanejanney/Desktop/Lumen/docs/api-harness.md)
 
 ### Frontend
 
