@@ -15,12 +15,14 @@ if TYPE_CHECKING:
     import geopandas as gpd
     from shapely import STRtree
 
+from backend.app.core.config import settings
 from backend.app.data.contracts import (
     LAYER_NAME,
     get_column_names,
     print_validation_report,
     validate_processed_artifact,
 )
+from backend.app.data.sqlite_store import SqliteProcessedStore
 
 
 class ProcessedStore:
@@ -276,4 +278,18 @@ def get_store() -> ProcessedStore:
     Returns:
         The global ProcessedStore instance
     """
+    # Default behavior in tests: ProcessedStore singleton.
+    # In app runtime: prefer SQLite DB if configured and present.
+    if settings.use_sqlite_db:
+        try:
+            db_path = Path(settings.lumen_db_path)
+            if db_path.exists():
+                store = SqliteProcessedStore.get_instance()
+                if not store.is_loaded():
+                    store.load(db_path)
+                return store  # type: ignore[return-value]
+        except Exception:
+            # Fall back to legacy store when DB isn't available/healthy.
+            pass
+
     return ProcessedStore.get_instance()
