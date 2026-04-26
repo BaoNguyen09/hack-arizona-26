@@ -34,10 +34,14 @@ MINIMAL_DF = pd.DataFrame(
 
 @pytest.fixture(autouse=True)
 def reset_store():
-    """Reset the ProcessedStore singleton before and after every test."""
+    """Reset the ProcessedStore singleton and heatmap cache before/after every test."""
+    from backend.app.core.perf import heatmap_cache  # noqa: PLC0415
+
     ProcessedStore._instance = None
+    heatmap_cache.clear()
     yield
     ProcessedStore._instance = None
+    heatmap_cache.clear()
 
 
 @pytest.fixture()

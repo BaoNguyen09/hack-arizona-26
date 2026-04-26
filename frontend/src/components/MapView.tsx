@@ -23,7 +23,9 @@ export function MapView() {
   const mapContainer = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const popupRef = useRef<maplibregl.Popup | null>(null);
+  const rawCountyGeoJSONRef = useRef<GeoJSON.FeatureCollection | null>(null);
   const [mapLoaded, setMapLoaded] = useState(false);
+  const [countiesLayerReady, setCountiesLayerReady] = useState(false);
 
   const {
     gridCells,
@@ -34,6 +36,8 @@ export function MapView() {
     leftSidebarOpen,
     rightPanelOpen,
     techType,
+    capex,
+    carbonPrice,
   } = useLumenStore();
 
   // ── Initialize Map ─────────────────────────────────
@@ -88,44 +92,49 @@ export function MapView() {
     };
   }, []);
 
-  // ── County choropleth & State borders layer ────────
+  // ── Load county + state GeoJSON, create layers (once) ─
   useEffect(() => {
     if (!mapRef.current || !mapLoaded) return;
     const map = mapRef.current;
 
-    // Fetch and prepare both US Counties and US States GeoJSON
     Promise.all([
-      fetch('/data/us-counties.json').then(res => res.json()),
-      fetch('/data/us-states.json').then(res => res.json())
+      fetch("/data/us-counties.json").then((res) => res.json()),
+      fetch("/data/us-states.json").then((res) => res.json()),
     ]).then(([countiesData, statesData]) => {
-      
-      const enhancedCounties = enhanceCountyGeoJSON(countiesData);
+      rawCountyGeoJSONRef.current = countiesData;
 
-      // Add States Source
+      // Initial enhancement with current scenario
+      const { techType: tech, capex: cpx, carbonPrice: cp } = useLumenStore.getState();
+      const enhancedCounties = enhanceCountyGeoJSON(countiesData, {
+        techType: tech,
+        capex: cpx,
+        carbonPrice: cp,
+        colorMode: "cost",
+      });
+
+      // Add States source
       if (map.getSource("states")) {
         (map.getSource("states") as maplibregl.GeoJSONSource).setData(statesData as any);
       } else {
         map.addSource("states", { type: "geojson", data: statesData as any });
       }
 
-      // Add Counties Source
+      // Add Counties source
       if (map.getSource("counties")) {
         (map.getSource("counties") as maplibregl.GeoJSONSource).setData(enhancedCounties as any);
       } else {
         map.addSource("counties", { type: "geojson", data: enhancedCounties as any });
 
-        // County fill
         map.addLayer({
           id: "counties-fill",
           type: "fill",
           source: "counties",
           paint: {
             "fill-color": ["get", "color"],
-            "fill-opacity": 0.65,
+            "fill-opacity": 0.7,
           },
         });
 
-        // County subtle borders
         map.addLayer({
           id: "counties-border",
           type: "line",
@@ -136,7 +145,6 @@ export function MapView() {
           },
         });
 
-        // State prominent borders
         map.addLayer({
           id: "states-border",
           type: "line",
@@ -147,7 +155,6 @@ export function MapView() {
           },
         });
 
-        // Hover highlight for counties
         map.addLayer({
           id: "counties-hover",
           type: "fill",
@@ -169,8 +176,12 @@ export function MapView() {
 
           if (popupRef.current) popupRef.current.remove();
 
+          const cf = Number(props.capacityFactor || 0);
+          const lcoe = Number(props.lcoe || 0);
           const ci = Number(props.carbonIntensity).toFixed(0);
           const ciColor = carbonToColor(Number(ci));
+          const { techType: currentTech } = useLumenStore.getState();
+          const techLabel = currentTech === "solar" ? "Solar CF" : "Wind CF";
 
           popupRef.current = new maplibregl.Popup({
             closeButton: false,
@@ -180,15 +191,16 @@ export function MapView() {
             .setLngLat(e.lngLat)
             .setHTML(
               `<div style="font-family:Inter,sans-serif; background: rgba(11, 15, 20, 0.95); backdrop-filter: blur(8px); border: 1px solid rgba(31, 41, 55, 0.5); padding: 8px; border-radius: 8px;">
-                <div style="font-size:13px;font-weight:600;margin-bottom:6px;display:flex;align-items:center;gap:6px;color:white;">
-                  <span style="width:8px;height:8px;border-radius:2px;background:${ciColor};display:inline-block;"></span>
+                <div style="font-size:13px;font-weight:600;margin-bottom:6px;color:white;">
                   ${props.shortName}
                 </div>
                 <div style="display:grid;grid-template-columns:1fr 1fr;gap:3px 14px;font-size:11px;">
+                  <span style="color:#9ca3af;">${techLabel}</span>
+                  <span style="color:white;font-weight:600;text-align:right;">${(cf * 100).toFixed(1)}%</span>
+                  <span style="color:#9ca3af;">LCOE</span>
+                  <span style="color:white;font-weight:600;text-align:right;">$${lcoe.toFixed(1)}/MWh</span>
                   <span style="color:#9ca3af;">Carbon</span>
                   <span style="color:${ciColor};font-weight:600;text-align:right;">${ci} gCO₂/kWh</span>
-                  <span style="color:#9ca3af;">LCOE</span>
-                  <span style="color:white;font-weight:600;text-align:right;">$${Number(props.lcoe).toFixed(1)}/MWh</span>
                   <span style="color:#9ca3af;">Renewable</span>
                   <span style="color:white;font-weight:500;text-align:right;">${props.renewablePercent}%</span>
                 </div>
@@ -209,12 +221,29 @@ export function MapView() {
         map.on("click", "counties-fill", (e) => {
           if (!e.features?.length) return;
           const props = e.features[0].properties!;
-          // Using the FIPS code as the unique ID
           fetchCountyData(props.id, props.shortName || props.name, props.state);
         });
       }
+
+      setCountiesLayerReady(true);
     });
   }, [mapLoaded, fetchCountyData]);
+
+  // ── Re-color counties when scenario changes ────────
+  useEffect(() => {
+    if (!mapRef.current || !mapLoaded || !countiesLayerReady || !rawCountyGeoJSONRef.current) return;
+    const map = mapRef.current;
+    const source = map.getSource("counties") as maplibregl.GeoJSONSource | undefined;
+    if (!source) return;
+
+    const enhanced = enhanceCountyGeoJSON(rawCountyGeoJSONRef.current, {
+      techType,
+      capex,
+      carbonPrice,
+      colorMode: "cost",
+    });
+    source.setData(enhanced as any);
+  }, [techType, capex, carbonPrice, mapLoaded, countiesLayerReady]);
 
   // ── Zone visibility toggle ─────────────────────────
   useEffect(() => {
@@ -282,9 +311,8 @@ export function MapView() {
         filter: ["==", "id", ""],
       });
 
-      // Grid cell interactions
       map.on("mousemove", "grid-cells-fill", (e) => {
-        if (showZones) return; // zones take priority
+        if (showZones) return;
         map.getCanvas().style.cursor = "pointer";
         if (!e.features?.length) return;
         const props = e.features[0].properties!;
@@ -362,21 +390,15 @@ export function MapView() {
         {showZones ? (
           <>
             <p className="text-[9px] text-gray-400 uppercase tracking-wider mb-1.5 font-medium">
-              Carbon (gCO₂eq/kWh)
+              Cost Score — {techType === "solar" ? "Solar" : "Wind"} PV
             </p>
             <div className="flex items-center gap-1.5">
-              <span className="text-[9px] text-gray-400 w-4 text-right">0</span>
-              <div className="flex w-24 h-1.5 rounded overflow-hidden">
-                <div className="flex-1" style={{ background: "#10b981" }} />
-                <div className="flex-1" style={{ background: "#84cc16" }} />
-                <div className="flex-1" style={{ background: "#eab308" }} />
-                <div className="flex-1" style={{ background: "#f59e0b" }} />
-                <div className="flex-1" style={{ background: "#ea580c" }} />
-                <div className="flex-1" style={{ background: "#dc2626" }} />
-                <div className="flex-1" style={{ background: "#991b1b" }} />
-                <div className="flex-1" style={{ background: "#450a0a" }} />
-              </div>
-              <span className="text-[9px] text-gray-400">800+</span>
+              <span className="text-[9px] text-gray-400">Cheap</span>
+              <div
+                className="w-24 h-1.5 rounded-full"
+                style={{ background: "linear-gradient(to right, #22c55e, #eab308, #ef4444)" }}
+              />
+              <span className="text-[9px] text-gray-400">Expensive</span>
             </div>
           </>
         ) : showHeatmap ? (

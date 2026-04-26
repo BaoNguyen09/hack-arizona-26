@@ -1,9 +1,15 @@
 """Heatmap/scored cells service.
 
 Builds scored cell responses using the vectorized scoring engine
-and processed data store.
+and processed data store.  Falls back to the bundled CSV dataset
+when the main store (GeoPackage / SQLite) is not loaded.
 """
 
+from __future__ import annotations
+
+from pathlib import Path
+
+from backend.app.core.config import settings
 from backend.app.core.perf import (
     cache_key_for_scenario,
     heatmap_cache,
@@ -13,29 +19,27 @@ from backend.app.data.processed_store import get_store
 from backend.app.engine.scoring import score_all_cells
 from backend.app.schemas.scenario import HeatmapResponse, ScenarioRequest, ScoredCell
 
+_CSV_PATH = Path(settings.data_dir) / "processed" / "lumen_cells.csv"
+
+
+def _load_csv_dataframe():
+    """Load the bundled CSV as a scoring-compatible DataFrame."""
+    from backend.app.data.processed_dataset import load_as_scoring_dataframe  # noqa: PLC0415
+
+    return load_as_scoring_dataframe(_CSV_PATH)
+
 
 @timed("build_heatmap")
 def build_heatmap_response(payload: ScenarioRequest) -> HeatmapResponse:
     """Build a scored cell response for the map layer.
 
-    Uses vectorized scoring over all cells in the processed store,
-    computing composite scores based on scenario parameters.
+    Uses vectorized scoring over all cells in the processed store.
+    Falls back to the bundled 28-cell CSV when the main store is not loaded.
 
     Results are cached when scenario parameters match a previous call,
     enabling sub-200ms responses for repeated similar queries.
-
-    Args:
-        payload: User scenario configuration
-
-    Returns:
-        HeatmapResponse with scored cells sorted by composite score
-
-    Raises:
-        RuntimeError: If the processed store is not loaded
     """
     store = get_store()
-    if not store.is_loaded():
-        raise RuntimeError("Processed store not loaded. Cannot compute scores.")
 
     # Check cache for exact scenario match
     cache_key = cache_key_for_scenario(
@@ -54,16 +58,21 @@ def build_heatmap_response(payload: ScenarioRequest) -> HeatmapResponse:
     if cached:
         return cached_result
 
-    # Get all cells as DataFrame
-    df = store.get_all_cells()
+    # Get all cells as DataFrame — prefer main store, fall back to CSV
+    if store.is_loaded():
+        df = store.get_all_cells()
+    elif _CSV_PATH.exists():
+        df = _load_csv_dataframe()
+    else:
+        raise RuntimeError(
+            "Processed store not loaded and bundled CSV not found. "
+            "Run the bootstrap script or provide data/processed/lumen_cells.csv."
+        )
 
     # Apply vectorized scoring
     scored_df = score_all_cells(df, payload)
-
-    # Sort by composite score (lower is better)
     scored_df = scored_df.sort_values("composite_score")
 
-    # Build scored cell models
     cells = []
     for _, row in scored_df.iterrows():
         cells.append(
@@ -79,21 +88,15 @@ def build_heatmap_response(payload: ScenarioRequest) -> HeatmapResponse:
             )
         )
 
-    # Compute score range
     scores = scored_df["composite_score"].to_numpy()
-    score_min = float(scores.min())
-    score_max = float(scores.max())
-
     response = HeatmapResponse(
         technology=payload.technology,
-        score_min=score_min,
-        score_max=score_max,
+        score_min=float(scores.min()),
+        score_max=float(scores.max()),
         score_unit="composite_score (lower is better)",
         cell_count=len(cells),
         cells=cells,
     )
 
-    # Cache the result
     heatmap_cache.set(response, cache_key)
-
     return response

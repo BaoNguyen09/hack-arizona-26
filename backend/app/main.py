@@ -11,13 +11,19 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from backend.app.api.routes import router
 from backend.app.core.config import settings
+from backend.app.data.processed_store import get_store
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan handler for startup/shutdown events."""
-    # County orchestration uses deterministic artifacts today; grid-cell loading
-    # remains available through ProcessedStore for the legacy heatmap endpoints.
+    # Prefer loading the SQLite-backed store if available.
+    # Tests may pre-populate the legacy ProcessedStore singleton; this code should
+    # not crash if the DB isn't present.
+    try:
+        get_store()
+    except Exception:
+        pass
 
     yield
 

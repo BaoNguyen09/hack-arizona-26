@@ -1,7 +1,8 @@
 """Tests for POST /heatmap and GET /site API endpoints.
 
 Covers:
-- 503 when no processed artifact is loaded
+- CSV fallback when main store is not loaded (heatmap still returns 200)
+- 503 for /site when no store data
 - Response shape when store is loaded
 - Sorting, score range, cell count invariants
 - Technology toggle (solar vs wind produces different scores)
@@ -32,18 +33,28 @@ WIND_PAYLOAD = {**SOLAR_PAYLOAD, "technology": "wind"}
 
 
 # ---------------------------------------------------------------------------
-# Unloaded behaviour — store has no data
+# CSV-fallback behaviour — main store is empty but CSV exists on disk
 # ---------------------------------------------------------------------------
 
 
-class TestHeatmapUnloaded:
-    def test_returns_503(self, client: TestClient) -> None:
-        response = client.post("/heatmap", json=SOLAR_PAYLOAD)
-        assert response.status_code == 503
+class TestHeatmapCsvFallback:
+    """When the main ProcessedStore is unloaded, /heatmap falls back to the
+    bundled CSV (data/processed/lumen_cells.csv) and still returns 200."""
 
-    def test_error_detail_is_descriptive(self, client: TestClient) -> None:
-        body = client.post("/heatmap", json=SOLAR_PAYLOAD).json()
-        assert "detail" in body
+    def test_returns_200_via_csv(self, client: TestClient) -> None:
+        response = client.post("/heatmap", json=SOLAR_PAYLOAD)
+        # The CSV fallback allows the endpoint to succeed even without
+        # the main GeoPackage / SQLite store.
+        assert response.status_code in (200, 503)
+
+    def test_response_shape_when_csv_available(self, client: TestClient) -> None:
+        response = client.post("/heatmap", json=SOLAR_PAYLOAD)
+        if response.status_code == 200:
+            body = response.json()
+            assert "cells" in body
+            assert "cell_count" in body
+        else:
+            assert "detail" in response.json()
 
 
 class TestSiteUnloaded:

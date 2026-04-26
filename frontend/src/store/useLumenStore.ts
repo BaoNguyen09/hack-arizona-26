@@ -4,10 +4,10 @@ import {
   SiteAssessment,
   generateGridCells,
 } from "../data/mockData";
-import { type ZoneData } from "../data/zones";
+import { type ZoneData, type TechType } from "../data/zones";
 import { fetchCountyMetricsViaJob, fetchCountyBrief } from "../lib/api";
 
-export type TechType = "solar" | "wind";
+export type { TechType };
 
 interface LumenState {
   // Scenario controls

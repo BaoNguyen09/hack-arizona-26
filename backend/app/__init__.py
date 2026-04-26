@@ -1,0 +1,2 @@
+"""Lumen backend application package."""
+
