@@ -5,7 +5,7 @@ import {
   generateGridCells,
 } from "../data/mockData";
 import { type ZoneData } from "../data/zones";
-import { fetchCountyMetrics, fetchCountyBrief } from "../lib/api";
+import { fetchCountyMetricsViaJob, fetchCountyBrief } from "../lib/api";
 
 export type TechType = "solar" | "wind";
 
@@ -130,7 +130,7 @@ export const useLumenStore = create<LumenState>((set, get) => ({
 
     try {
       const { techType, capex, carbonPrice } = get();
-      const data = await fetchCountyMetrics(fips, {
+      const data = await fetchCountyMetricsViaJob(fips, {
         technology: techType,
         capacity_mw: 50.0,
         capex_usd_per_kw: capex,
@@ -151,27 +151,34 @@ export const useLumenStore = create<LumenState>((set, get) => ({
         revenue: metrics.estimated_annual_revenue_usd_millions * 1000000,
         carbonDisplacement: metrics.annual_carbon_displacement_tons,
         nearestTransmissionKm: metrics.nearest_transmission_km || 12,
-        // Mocking the charts for now as they require full timeseries
-        generationProfile: Array.from({ length: 24 }).map((_, i) => ({
-          hour: i,
-          generation: Math.random() * 50,
-          price: metrics.avg_wholesale_price_usd_per_mwh * (0.8 + Math.random() * 0.4),
-        })),
+        generationProfile:
+          metrics.generation_profile ||
+          Array.from({ length: 24 }).map((_, i) => ({
+            hour: i,
+            generation: 0,
+            price: metrics.avg_wholesale_price_usd_per_mwh,
+          })),
         lcoeBreakdown: [
-          { category: "CAPEX", value: metrics.lcoe_components.capex_share || 20, color: "#3b82f6" },
-          { category: "OPEX", value: metrics.lcoe_components.opex_share || 5, color: "#06b6d4" },
+          {
+            category: "CAPEX",
+            value: metrics.lcoe_components.capex_share_usd_per_mwh || 20,
+            color: "#3b82f6",
+          },
+          {
+            category: "OPEX",
+            value: metrics.lcoe_components.opex_share_usd_per_mwh || 5,
+            color: "#06b6d4",
+          },
           { category: "Transmission", value: 3.5, color: "#f59e0b" },
           { category: "Financing", value: 2.1, color: "#8b5cf6" },
         ],
-        carbonOverlay: Array.from({ length: 24 }).map((_, i) => {
-          const ci = metrics.grid_carbon_intensity_g_per_kwh * (0.8 + Math.random() * 0.4);
-          const gen = Math.random() * 50;
-          return {
+        carbonOverlay:
+          metrics.carbon_profile ||
+          Array.from({ length: 24 }).map((_, i) => ({
             hour: i,
-            gridIntensity: ci,
-            displaced: gen * ci / 1000,
-          };
-        }),
+            gridIntensity: metrics.grid_carbon_intensity_g_per_kwh,
+            displaced: metrics.grid_carbon_intensity_g_per_kwh / 1000,
+          })),
       };
 
       // Also set selectedCounty with basic data so CountyPanelContent works

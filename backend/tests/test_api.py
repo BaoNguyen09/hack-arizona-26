@@ -10,6 +10,8 @@ Covers:
 - 422 validation for bad query params
 """
 
+import time
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -236,3 +238,54 @@ class TestStubs:
         response = client.post("/query")
         assert response.status_code == 200
         assert response.json()["status"] == "not_implemented"
+
+
+class TestJobs:
+    def test_county_job_completes_with_site_response(self, client: TestClient) -> None:
+        response = client.post(
+            "/jobs/county",
+            json={"fips_code": "48201", "scenario": SOLAR_PAYLOAD},
+        )
+        assert response.status_code == 200
+        job_id = response.json()["job_id"]
+
+        status = _wait_for_completed_job(client, job_id)
+        assert status["job_type"] == "county"
+        assert status["result"]["site"]["cell_id"] == "county_48201"
+
+    def test_brief_job_completes_with_text(self, client: TestClient) -> None:
+        site = {
+            "selected_cf_mean": 0.26,
+            "lcoe_usd_per_mwh": 32.4,
+            "avg_wholesale_price_usd_per_mwh": 38.2,
+            "grid_carbon_intensity_g_per_kwh": 432,
+            "nearest_transmission_km": 18.3,
+            "selected_technology": "solar",
+        }
+        response = client.post(
+            "/jobs/brief",
+            json={"site": site, "scenario": SOLAR_PAYLOAD},
+        )
+        assert response.status_code == 200
+        job_id = response.json()["job_id"]
+
+        status = _wait_for_completed_job(client, job_id)
+        assert status["job_type"] == "brief"
+        assert "Site Assessment" in status["result"]["text"]
+
+    def test_unknown_job_returns_404(self, client: TestClient) -> None:
+        response = client.get("/jobs/does-not-exist")
+        assert response.status_code == 404
+
+
+def _wait_for_completed_job(client: TestClient, job_id: str) -> dict:
+    for _ in range(20):
+        status_response = client.get(f"/jobs/{job_id}")
+        assert status_response.status_code == 200
+        status = status_response.json()
+        if status["status"] == "completed":
+            return status
+        if status["status"] == "failed":
+            raise AssertionError(status["error"])
+        time.sleep(0.01)
+    raise AssertionError(f"Job did not complete: {job_id}")

@@ -1,27 +1,33 @@
-"""API routes for Lumen backend.
+"""API routes for Lumen backend."""
 
-Exposes endpoints for health checks, scored cell layers (/heatmap),
-and site investigation (/site).
-"""
-
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Body, HTTPException, Query
 
 from backend.app.data.processed_store import get_store
+from backend.app.jobs.orchestrator import (
+    generate_brief,
+    get_job_status,
+    submit_brief_job,
+    submit_county_job,
+    wait_for_job,
+)
 from backend.app.schemas.scenario import (
+    BriefJobRequest,
+    BriefRequest,
+    BriefResponse,
+    CountyJobRequest,
     HealthResponse,
     HeatmapResponse,
+    JobStatusResponse,
+    JobSubmitResponse,
     ScenarioRequest,
     SiteRequest,
     SiteResponse,
 )
 from backend.app.services.heatmap import build_heatmap_response
 from backend.app.services.site import get_site_response
-from backend.app.data.county_store import generate_county_data
-from backend.app.engine.scoring import score_single_cell
-from backend.app.schemas.scenario import SiteMetrics
-import pandas as pd
 
 router = APIRouter()
+OPTIONAL_BRIEF_BODY = Body(default=None)
 
 
 @router.get("/health", response_model=HealthResponse)
@@ -144,7 +150,84 @@ def county_site(
     carbon_weight: float = Query(1.0, ge=0, description="Carbon value weight"),
 ) -> SiteResponse:
     """Get detailed metrics for a specific county FIPS code deterministically."""
-    scenario = ScenarioRequest(
+    scenario = _scenario_from_query(
+        technology=technology,
+        capacity_mw=capacity_mw,
+        capex_usd_per_kw=capex_usd_per_kw,
+        opex_usd_per_kw_year=opex_usd_per_kw_year,
+        discount_rate=discount_rate,
+        project_lifetime_years=project_lifetime_years,
+        carbon_price_usd_per_ton=carbon_price_usd_per_ton,
+        cost_weight=cost_weight,
+        revenue_weight=revenue_weight,
+        carbon_weight=carbon_weight,
+    )
+    try:
+        job_id, _cached = submit_county_job(fips_code, scenario)
+        status = wait_for_job(job_id)
+        if status["status"] != "completed" or status["result"] is None:
+            raise RuntimeError(f"County job did not complete: {status['status']}")
+        return SiteResponse(**status["result"])
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, detail=f"Error computing county site: {e}"
+        ) from e
+
+
+@router.post("/brief", response_model=BriefResponse | dict)
+def brief(payload: BriefRequest | None = OPTIONAL_BRIEF_BODY) -> BriefResponse | dict:
+    """Generate AI site assessment brief."""
+    if payload is None:
+        return {"status": "not_implemented", "message": "Brief payload is required"}
+    return generate_brief(payload.site, payload.scenario)
+
+
+@router.post("/jobs/county", response_model=JobSubmitResponse)
+def create_county_job(payload: CountyJobRequest) -> JobSubmitResponse:
+    """Submit a county scoring job."""
+    job_id, cached = submit_county_job(payload.fips_code, payload.scenario)
+    return JobSubmitResponse(job_id=job_id, status="queued", cached=cached)
+
+
+@router.post("/jobs/brief", response_model=JobSubmitResponse)
+def create_brief_job(payload: BriefJobRequest) -> JobSubmitResponse:
+    """Submit a site brief generation job."""
+    job_id, cached = submit_brief_job(payload.site, payload.scenario)
+    return JobSubmitResponse(job_id=job_id, status="queued", cached=cached)
+
+
+@router.get("/jobs/{job_id}", response_model=JobStatusResponse)
+def job_status(job_id: str) -> JobStatusResponse:
+    """Get local async job status."""
+    try:
+        return JobStatusResponse(**get_job_status(job_id))
+    except KeyError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+
+
+@router.post("/query")
+def query() -> dict:
+    """Natural language scenario query parser (stub for future implementation).
+
+    Will parse natural language queries into structured scenario parameters.
+    """
+    return {"status": "not_implemented", "message": "NL query parsing coming soon"}
+
+
+def _scenario_from_query(
+    technology: str,
+    capacity_mw: float,
+    capex_usd_per_kw: float,
+    opex_usd_per_kw_year: float,
+    discount_rate: float,
+    project_lifetime_years: int,
+    carbon_price_usd_per_ton: float,
+    cost_weight: float,
+    revenue_weight: float,
+    carbon_weight: float,
+) -> ScenarioRequest:
+    """Build and validate a scenario from query params."""
+    return ScenarioRequest(
         technology=technology,  # type: ignore[arg-type]
         capacity_mw=capacity_mw,
         capex_usd_per_kw=capex_usd_per_kw,
@@ -156,74 +239,3 @@ def county_site(
         revenue_weight=revenue_weight,
         carbon_weight=carbon_weight,
     )
-    
-    # Generate deterministic county data
-    row = generate_county_data(fips_code, technology)
-    scores = score_single_cell(row, scenario)
-    
-    metrics = SiteMetrics(
-        cell_id=row["cell_id"],
-        lat=row["lat"],
-        lon=row["lon"],
-        solar_cf_mean=row["solar_cf_mean"],
-        wind_cf_mean=row["wind_cf_mean"],
-        selected_technology=scenario.technology,
-        selected_cf_mean=scores["selected_cf"],
-        estimated_annual_generation_gwh=scores["annual_generation_gwh"],
-        lcoe_usd_per_mwh=scores["lcoe_usd_per_mwh"],
-        lcoe_components=scores["lcoe_components"],
-        capex_total_usd_millions=scores["capex_total_usd_millions"],
-        price_hub_id=row["price_hub_id"],
-        avg_wholesale_price_usd_per_mwh=row["price_usd_per_mwh_mean"],
-        estimated_annual_revenue_usd_millions=scores["annual_revenue_usd_millions"],
-        revenue_per_mwh_usd=scores["revenue_usd_per_mwh"],
-        grid_carbon_intensity_g_per_kwh=row["carbon_g_per_kwh_mean"],
-        annual_carbon_displacement_tons=scores["annual_carbon_displacement_tons"],
-        carbon_value_usd_per_year=scores["annual_carbon_value_usd"],
-        carbon_value_usd_per_mwh=scores["carbon_value_usd_per_mwh"],
-        nearest_transmission_km=row["nearest_transmission_km"],
-        grid_zone_id=row["grid_zone_id"],
-    )
-
-    return SiteResponse(
-        site=metrics,
-        scenario=scenario,
-        score_rank=1,
-        total_cells=3143,
-    )
-
-
-from pydantic import BaseModel
-
-class BriefRequest(BaseModel):
-    site: dict
-    scenario: dict
-
-@router.post("/brief")
-def brief(payload: BriefRequest) -> dict:
-    """Generate AI site assessment brief."""
-    site = payload.site
-    cf = site.get("selected_cf_mean", 0) * 100
-    lcoe = site.get("lcoe_usd_per_mwh", 0)
-    rev = site.get("avg_wholesale_price_usd_per_mwh", 0)
-    carbon = site.get("grid_carbon_intensity_g_per_kwh", 0)
-    trans = site.get("nearest_transmission_km", 0)
-    
-    text = (
-        f"Site Assessment: This county location offers a capacity factor of {cf:.1f}%, "
-        f"yielding an estimated LCOE of ${lcoe:.1f}/MWh. "
-        f"Wholesale prices at the nearest hub average ${rev:.1f}/MWh, creating positive margin. "
-        f"Grid carbon intensity here is {carbon:.1f} gCO₂/kWh, meaning each MWh displaces {carbon/1000:.2f} tCO₂. "
-        f"Nearest 345kV transmission line is {trans:.1f} km away. "
-        f"Key risk: curtailment during spring months when supply exceeds demand."
-    )
-    return {"status": "success", "text": text}
-
-
-@router.post("/query")
-def query() -> dict:
-    """Natural language scenario query parser (stub for future implementation).
-
-    Will parse natural language queries into structured scenario parameters.
-    """
-    return {"status": "not_implemented", "message": "NL query parsing coming soon"}

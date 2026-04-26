@@ -5,8 +5,6 @@ mirroring the behavior of the frontend to allow the API to function
 without a fully populated database of grid cells.
 """
 
-import random
-
 from .state_data import STATE_DATA
 
 # Base FIPS prefixes for major states to give them realistic profiles
@@ -58,17 +56,42 @@ def generate_county_data(fips: str, technology: str = "solar") -> dict:
     is_west = state in ["WA", "OR", "CA", "ID"]
     is_midwest = state in ["ND", "SD", "NE", "KS", "IA", "MO"]
     is_south = state in ["TX", "LA", "MS", "AL", "GA", "FL"]
-    is_east = state in ["NY", "PA", "NJ", "MA", "CT", "VT", "ME", "NH", "RI", "MD", "DE"]
+    is_east = state in [
+        "NY",
+        "PA",
+        "NJ",
+        "MA",
+        "CT",
+        "VT",
+        "ME",
+        "NH",
+        "RI",
+        "MD",
+        "DE",
+    ]
 
     ci_base = 400
-    if is_west: ci_base = 150
-    if is_midwest: ci_base = 550
-    if is_east: ci_base = 350
-    if is_south: ci_base = 450
+    if is_west:
+        ci_base = 150
+    if is_midwest:
+        ci_base = 550
+    if is_east:
+        ci_base = 350
+    if is_south:
+        ci_base = 450
     
     # Fetch state baseline from the provided CSV data
     # Fallback if state not found
-    base = STATE_DATA.get(state, {"price": 100.0, "solar": 5.0, "wind": 5.0, "hydro": 5.0, "fossil": 85.0})
+    base = STATE_DATA.get(
+        state,
+        {
+            "price": 100.0,
+            "solar": 5.0,
+            "wind": 5.0,
+            "hydro": 5.0,
+            "fossil": 85.0,
+        },
+    )
     
     # Real world carbon logic: heavily influenced by fossil %
     # 100% fossil ≈ 800 gCO₂eq/kWh, 0% = 0
@@ -76,22 +99,37 @@ def generate_county_data(fips: str, technology: str = "solar") -> dict:
     
     # Massive localized county variance so adjacent counties look very different
     # rng.rand() gives 0 to 1.
-    carbon_intensity = max(10, ci_base + (rng.rand() * (ci_base * 0.8) - (ci_base * 0.4)))
-    
-    lcoe = max(15, 60 + (rng.rand() * 80 - 40))
+    carbon_intensity = max(
+        10,
+        ci_base + (rng.rand() * (ci_base * 0.8) - (ci_base * 0.4)),
+    )
     
     # Calculate renewable and carbon free metrics
     state_renewable = base["solar"] + base["wind"] + base["hydro"]
     renewable_percent = min(95, max(5, state_renewable + (rng.rand() * 30 - 15)))
-    carbon_free_percent = min(100, max(renewable_percent, (100 - base["fossil"]) + (rng.rand() * 10 - 5)))
     
-    state_price = base["price"] * 10 # convert cents/kWh to $/MWh
-    price = max(10, state_price + (rng.rand() * (state_price * 0.4) - (state_price * 0.2)))
+    state_price = base["price"] * 10  # convert cents/kWh to $/MWh
+    price = max(
+        10,
+        state_price + (rng.rand() * (state_price * 0.4) - (state_price * 0.2)),
+    )
     
     # For the frontend API response, we need CFs which are roughly 0.1 to 0.4.
     # We will derive them roughly from the state percentage just for consistency.
-    solar_cf = max(0.1, min(0.35, 0.15 + (base["solar"]/100.0 * 0.5) + (rng.rand() * 0.1 - 0.05)))
-    wind_cf = max(0.1, min(0.55, 0.2 + (base["wind"]/100.0 * 0.5) + (rng.rand() * 0.1 - 0.05)))
+    solar_cf = max(
+        0.1,
+        min(
+            0.35,
+            0.15 + (base["solar"] / 100.0 * 0.5) + (rng.rand() * 0.1 - 0.05),
+        ),
+    )
+    wind_cf = max(
+        0.1,
+        min(
+            0.55,
+            0.2 + (base["wind"] / 100.0 * 0.5) + (rng.rand() * 0.1 - 0.05),
+        ),
+    )
     
     carbon = carbon_intensity
     
@@ -103,10 +141,13 @@ def generate_county_data(fips: str, technology: str = "solar") -> dict:
 
     # We return a dict that maps perfectly to what `score_single_cell` expects
     # inside backend.app.services.site or what we use to build SiteMetrics
+    lat = 25.0 + rng.rand() * 24.0
+    lon = -125.0 + rng.rand() * 58.0
+
     return {
         "cell_id": f"county_{fips}",
-        "lat": random.uniform(25.0, 49.0),  # Rough US bounds
-        "lon": random.uniform(-125.0, -67.0),
+        "lat": lat,  # Rough US bounds until county centroids are wired in
+        "lon": lon,
         "solar_cf_mean": solar_cf,
         "wind_cf_mean": wind_cf,
         "price_usd_per_mwh_mean": price,
