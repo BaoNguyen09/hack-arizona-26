@@ -54,6 +54,9 @@ export function LeftSidebar() {
     weightRevenue,
     weightCarbon,
     setWeights,
+    capex,
+    carbonPrice,
+    techType,
   } = useLumenStore();
 
   const timeSeries = useMemo(() => generateTimeSeries(), []);
