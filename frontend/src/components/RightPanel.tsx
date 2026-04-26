@@ -67,7 +67,12 @@ export function RightPanel() {
             }}
           >
             {selectedCounty ? (
-              <CountyPanelContent county={selectedCounty} onClose={closePanel} />
+              <CountyPanelContent
+                county={selectedCounty}
+                assessment={siteAssessment}
+                techType={techType}
+                onClose={closePanel}
+              />
             ) : siteAssessment ? (
               <SitePanelContent
                 assessment={siteAssessment}
@@ -85,9 +90,13 @@ export function RightPanel() {
 // ── County Panel ───────────────────────────────────────
 function CountyPanelContent({
   county,
+  assessment,
+  techType,
   onClose,
 }: {
   county: NonNullable<ReturnType<typeof useLumenStore.getState>["selectedCounty"]>;
+  assessment: ReturnType<typeof useLumenStore.getState>["siteAssessment"];
+  techType: string;
   onClose: () => void;
 }) {
   const ciColor = carbonToColor(county.carbonIntensity);
@@ -130,6 +139,17 @@ function CountyPanelContent({
             <X className="w-4 h-4 text-gray-400" />
           </button>
         </div>
+        {assessment ? (
+          <div className="flex items-center gap-2 mt-2">
+            <span className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-white/10 text-white border border-white/20">
+              <Sparkles className="w-3 h-3" />
+              AI County Brief
+            </span>
+            <span className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-white/5 text-gray-300 border border-white/10">
+              {techType === "solar" ? "â˜€ï¸ Solar PV" : "ðŸ’¨ Wind"}
+            </span>
+          </div>
+        ) : null}
       </div>
 
       <div className="px-5 pb-6 space-y-5">
@@ -165,6 +185,31 @@ function CountyPanelContent({
         <Section title="Local Energy Mix (24h)" icon={BarChart3}>
           <ElectricityMixChart data={timeSeries} />
         </Section>
+
+        {assessment ? (
+          <div>
+            <div className="flex items-center gap-1.5 mb-2">
+              <Sparkles className="w-3.5 h-3.5 text-white" />
+              <h3 className="text-[11px] font-medium text-gray-400 uppercase tracking-wider">
+                AI Assessment
+              </h3>
+            </div>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ delay: 0.3, duration: 0.5 }}
+              className="relative px-4 py-3 rounded-xl text-[12px] leading-relaxed text-gray-300 bg-gray-800/40 border border-gray-700/30"
+            >
+              <div
+                className="absolute top-0 left-0 w-full h-px"
+                style={{
+                  background: "linear-gradient(to right, transparent, rgba(255,255,255,0.1), transparent)",
+                }}
+              />
+              {assessment.aiSummary}
+            </motion.div>
+          </div>
+        ) : null}
       </div>
     </>
   );
