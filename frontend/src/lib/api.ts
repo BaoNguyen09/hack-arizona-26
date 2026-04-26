@@ -1,5 +1,30 @@
 export const API_BASE_URL = "http://localhost:8000";
 
+export interface QueryFilters {
+  technology: "solar" | "wind" | null;
+  region: string | null;
+  min_cf: number | null;
+  min_lcoe: number | null;
+  max_lcoe: number | null;
+  min_carbon_intensity: number | null;
+  max_carbon_intensity: number | null;
+  min_price: number | null;
+  max_price: number | null;
+  min_renewable_percent: number | null;
+  max_transmission_km: number | null;
+}
+
+export interface QueryResponse {
+  parsed: boolean;
+  message: string;
+  filters: QueryFilters | null;
+  effective_technology: "solar" | "wind" | null;
+  matched_cell_ids: string[];
+  matched_county_fips: string[];
+  matched_cell_count: number;
+  matched_county_count: number;
+}
+
 export async function fetchCountyMetrics(
   fips: string,
   params: {
@@ -91,6 +116,20 @@ export async function fetchCountyBrief(siteMetrics: any, scenario: any) {
       "Content-Type": "application/json",
     },
     body: JSON.stringify({ site: siteMetrics, scenario }),
+  });
+  if (!response.ok) {
+    throw new Error(`API error: ${response.statusText}`);
+  }
+  return response.json();
+}
+
+export async function submitNaturalLanguageQuery(query: string): Promise<QueryResponse> {
+  const response = await fetch(`${API_BASE_URL}/query`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ query }),
   });
   if (!response.ok) {
     throw new Error(`API error: ${response.statusText}`);

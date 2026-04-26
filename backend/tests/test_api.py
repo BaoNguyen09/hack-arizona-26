@@ -13,8 +13,11 @@ Covers:
 
 import time
 
+import pandas as pd
 import pytest
 from fastapi.testclient import TestClient
+
+from backend.app.services import query as query_service
 
 SOLAR_PAYLOAD = {
     "technology": "solar",
@@ -245,10 +248,95 @@ class TestStubs:
         assert response.status_code == 200
         assert response.json()["status"] == "not_implemented"
 
-    def test_query_stub_returns_200(self, client: TestClient) -> None:
-        response = client.post("/query")
+    def test_query_unparsed_returns_friendly_message(self, client: TestClient) -> None:
+        response = client.post("/query", json={"query": "tell me something interesting"})
         assert response.status_code == 200
-        assert response.json()["status"] == "not_implemented"
+        body = response.json()
+        assert body["parsed"] is False
+        assert "couldn't parse" in body["message"].lower()
+        assert body["matched_cell_ids"] == []
+        assert body["matched_county_fips"] == []
+
+    def test_query_returns_structured_filters_and_matches(
+        self,
+        loaded_client: TestClient,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        county_df = pd.DataFrame(
+            {
+                "fips": ["48201", "35001", "06037"],
+                "cell_id": ["county_48201", "county_35001", "county_06037"],
+                "lat": [29.76, 35.08, 34.05],
+                "lon": [-95.36, -106.65, -118.24],
+                "solar_cf_mean": [0.29, 0.31, 0.22],
+                "wind_cf_mean": [0.20, 0.25, 0.18],
+                "price_usd_per_mwh_mean": [42.0, 39.0, 45.0],
+                "carbon_g_per_kwh_mean": [430.0, 320.0, 210.0],
+                "nearest_transmission_km": [8.0, 12.0, 5.0],
+                "renewable_percent": [28.0, 52.0, 48.0],
+                "county_name": ["Harris", "Bernalillo", "Los Angeles"],
+                "state_fips": ["48", "35", "06"],
+                "state_abbr": ["TX", "NM", "CA"],
+                "state_name": ["Texas", "New Mexico", "California"],
+            }
+        )
+        monkeypatch.setattr(query_service, "get_county_index", lambda: county_df)
+
+        response = loaded_client.post(
+            "/query",
+            json={
+                "query": (
+                    "Find solar in Texas with capacity factor above 25% and "
+                    "LCOE below 60"
+                )
+            },
+        )
+        assert response.status_code == 200
+        body = response.json()
+        assert body["parsed"] is True
+        assert body["filters"]["technology"] == "solar"
+        assert body["filters"]["region"] == "texas"
+        assert body["filters"]["min_cf"] == pytest.approx(0.25)
+        assert body["filters"]["max_lcoe"] == pytest.approx(60.0)
+        assert body["matched_cell_ids"] == ["tx_001"]
+        assert body["matched_county_fips"] == ["48201"]
+
+    def test_query_supports_lcoe_greater_than(
+        self,
+        loaded_client: TestClient,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        county_df = pd.DataFrame(
+            {
+                "fips": ["48201", "48113"],
+                "cell_id": ["county_48201", "county_48113"],
+                "lat": [29.76, 32.76],
+                "lon": [-95.36, -96.79],
+                "solar_cf_mean": [0.29, 0.31],
+                "wind_cf_mean": [0.20, 0.25],
+                "price_usd_per_mwh_mean": [42.0, 39.0],
+                "carbon_g_per_kwh_mean": [430.0, 320.0],
+                "nearest_transmission_km": [8.0, 12.0],
+                "renewable_percent": [28.0, 52.0],
+                "county_name": ["Harris", "Dallas"],
+                "state_fips": ["48", "48"],
+                "state_abbr": ["TX", "TX"],
+                "state_name": ["Texas", "Texas"],
+            }
+        )
+        monkeypatch.setattr(query_service, "get_county_index", lambda: county_df)
+
+        response = loaded_client.post(
+            "/query",
+            json={"query": "Data in Texas with LCOE greater than 20"},
+        )
+        assert response.status_code == 200
+        body = response.json()
+        assert body["parsed"] is True
+        assert body["filters"]["region"] == "texas"
+        assert body["filters"]["min_lcoe"] == pytest.approx(20.0)
+        assert body["matched_cell_ids"] == ["tx_001"]
+        assert set(body["matched_county_fips"]) == {"48113", "48201"}
 
 
 class TestJobs:

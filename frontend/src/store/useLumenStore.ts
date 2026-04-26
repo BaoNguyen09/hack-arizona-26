@@ -5,7 +5,12 @@ import {
   generateGridCells,
 } from "../data/mockData";
 import { type ZoneData, type TechType } from "../data/zones";
-import { fetchCountyMetricsViaJob, fetchCountyBrief } from "../lib/api";
+import {
+  fetchCountyMetricsViaJob,
+  fetchCountyBrief,
+  submitNaturalLanguageQuery,
+  type QueryFilters,
+} from "../lib/api";
 
 export type { TechType };
 
@@ -28,6 +33,12 @@ interface LumenState {
   // Selected zone/county
   selectedCountyId: string | null;
   selectedCounty: ZoneData | null;
+  matchedCountyFips: string[];
+  matchedCellIds: string[];
+  queryFilters: QueryFilters | null;
+  queryMessage: string | null;
+  activeQueryText: string;
+  queryPending: boolean;
 
   // Left sidebar
   leftSidebarOpen: boolean;
@@ -46,6 +57,8 @@ interface LumenState {
   setIsLive: (live: boolean) => void;
   selectCell: (cell: GridCell | null) => void;
   fetchCountyData: (fips: string | null, name?: string, stateFips?: string) => Promise<void>;
+  runNaturalLanguageQuery: (query: string) => Promise<void>;
+  clearQueryResults: () => void;
   toggleLeftSidebar: () => void;
   setSidebarTab: (tab: LumenState["sidebarTab"]) => void;
   toggleTransmission: () => void;
@@ -69,6 +82,12 @@ export const useLumenStore = create<LumenState>((set, get) => ({
 
   selectedCountyId: null,
   selectedCounty: null,
+  matchedCountyFips: [],
+  matchedCellIds: [],
+  queryFilters: null,
+  queryMessage: null,
+  activeQueryText: "",
+  queryPending: false,
 
   leftSidebarOpen: true,
   sidebarTab: "overview",
@@ -207,6 +226,65 @@ export const useLumenStore = create<LumenState>((set, get) => ({
       console.error("Failed to fetch county data:", error);
     }
   },
+
+  runNaturalLanguageQuery: async (query) => {
+    const trimmed = query.trim();
+    if (!trimmed) {
+      set({
+        activeQueryText: "",
+        queryMessage: "Enter a query to filter counties.",
+        queryFilters: null,
+        matchedCountyFips: [],
+        matchedCellIds: [],
+        queryPending: false,
+      });
+      return;
+    }
+
+    set({
+      queryPending: true,
+      activeQueryText: trimmed,
+      queryMessage: null,
+    });
+
+    try {
+      const response = await submitNaturalLanguageQuery(trimmed);
+      set((state) => ({
+        queryPending: false,
+        queryMessage: response.message,
+        queryFilters: response.filters,
+        matchedCountyFips: response.matched_county_fips,
+        matchedCellIds: response.matched_cell_ids,
+        showZones:
+          response.parsed && response.matched_county_fips.length > 0
+            ? true
+            : state.showZones,
+        showHeatmap:
+          response.parsed && response.matched_county_fips.length > 0
+            ? false
+            : state.showHeatmap,
+      }));
+    } catch (error) {
+      console.error("Failed to run natural language query:", error);
+      set({
+        queryPending: false,
+        queryMessage: "Query request failed. Try again.",
+        queryFilters: null,
+        matchedCountyFips: [],
+        matchedCellIds: [],
+      });
+    }
+  },
+
+  clearQueryResults: () =>
+    set({
+      activeQueryText: "",
+      queryMessage: null,
+      queryFilters: null,
+      matchedCountyFips: [],
+      matchedCellIds: [],
+      queryPending: false,
+    }),
 
   toggleLeftSidebar: () =>
     set((s) => ({ leftSidebarOpen: !s.leftSidebarOpen })),

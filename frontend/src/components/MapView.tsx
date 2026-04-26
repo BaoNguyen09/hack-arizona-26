@@ -2,21 +2,23 @@ import { useEffect, useRef, useState } from "react";
 import maplibregl from "maplibre-gl";
 import { useLumenStore } from "../store/useLumenStore";
 import { enhanceCountyGeoJSON, carbonToColor } from "../data/zones";
-import type { GridCell } from "../data/mockData";
 
-// ── Cost → Color (grid cell mode) ─────────────────────
 function costToColor(score: number): string {
   const t = Math.min(1, Math.max(0, score / 100));
   if (t < 0.33) {
     const s = t / 0.33;
     return `rgb(${Math.round(34 + s * 211)},${Math.round(197 - s * 39)},${Math.round(94 - s * 83)})`;
-  } else if (t < 0.66) {
+  }
+  if (t < 0.66) {
     const s = (t - 0.33) / 0.33;
     return `rgb(${Math.round(245 - s * 6)},${Math.round(158 - s * 90)},${Math.round(11 + s * 57)})`;
-  } else {
-    const s = (t - 0.66) / 0.34;
-    return `rgb(${Math.round(239 - s * 20)},${Math.round(68 - s * 30)},${Math.round(68 - s * 10)})`;
   }
+  const s = (t - 0.66) / 0.34;
+  return `rgb(${Math.round(239 - s * 20)},${Math.round(68 - s * 30)},${Math.round(68 - s * 10)})`;
+}
+
+function createCountyFilter(ids: string[]) {
+  return ids.length > 0 ? (["in", "id", ...ids] as any) : (["==", "id", ""] as any);
 }
 
 export function MapView() {
@@ -33,6 +35,7 @@ export function MapView() {
     showZones,
     selectCell,
     fetchCountyData,
+    matchedCountyFips,
     leftSidebarOpen,
     rightPanelOpen,
     techType,
@@ -40,7 +43,6 @@ export function MapView() {
     carbonPrice,
   } = useLumenStore();
 
-  // ── Initialize Map ─────────────────────────────────
   useEffect(() => {
     if (!mapContainer.current || mapRef.current) return;
 
@@ -71,8 +73,7 @@ export function MapView() {
             maxzoom: 19,
           },
         ],
-        glyphs:
-          "https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf",
+        glyphs: "https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf",
       },
       center: [-96, 39],
       zoom: 4.2,
@@ -121,7 +122,9 @@ export function MapView() {
 
       // Add Counties source
       if (map.getSource("counties")) {
-        (map.getSource("counties") as maplibregl.GeoJSONSource).setData(enhancedCounties as any);
+        (map.getSource("counties") as maplibregl.GeoJSONSource).setData(
+          enhancedCounties as any
+        );
       } else {
         map.addSource("counties", { type: "geojson", data: enhancedCounties as any });
 
@@ -166,7 +169,29 @@ export function MapView() {
           filter: ["==", "id", ""],
         });
 
-        // ── County interactions ────────────────────────
+        map.addLayer({
+          id: "counties-query-match-fill",
+          type: "fill",
+          source: "counties",
+          paint: {
+            "fill-color": "#ffffff",
+            "fill-opacity": 0,
+          },
+          filter: ["==", "id", ""],
+        });
+
+        map.addLayer({
+          id: "counties-query-match-line",
+          type: "line",
+          source: "counties",
+          paint: {
+            "line-color": "#ffffff",
+            "line-width": 0,
+            "line-opacity": 0,
+          },
+          filter: ["==", "id", ""],
+        });
+
         map.on("mousemove", "counties-fill", (e) => {
           map.getCanvas().style.cursor = "pointer";
           if (!e.features?.length) return;
@@ -221,7 +246,7 @@ export function MapView() {
         map.on("click", "counties-fill", (e) => {
           if (!e.features?.length) return;
           const props = e.features[0].properties!;
-          fetchCountyData(props.id, props.shortName || props.name, props.state);
+          void fetchCountyData(props.id, props.shortName || props.name, props.state);
         });
       }
 
@@ -229,6 +254,59 @@ export function MapView() {
     });
   }, [mapLoaded, fetchCountyData]);
 
+  useEffect(() => {
+    if (!mapRef.current || !mapLoaded) return;
+    const map = mapRef.current;
+    const filter = createCountyFilter(matchedCountyFips);
+
+    if (map.getLayer("counties-query-match-fill")) {
+      map.setFilter("counties-query-match-fill", filter);
+    }
+    if (map.getLayer("counties-query-match-line")) {
+      map.setFilter("counties-query-match-line", filter);
+    }
+  }, [matchedCountyFips, mapLoaded]);
+
+  useEffect(() => {
+    if (!mapRef.current || !mapLoaded || matchedCountyFips.length === 0) return;
+    const map = mapRef.current;
+    let frameId = 0;
+    let active = true;
+
+    const tick = () => {
+      if (!active) return;
+      const phase = (Date.now() % 1800) / 1800;
+      const pulse = 0.18 + (Math.sin(phase * Math.PI * 2) + 1) * 0.16;
+
+      if (map.getLayer("counties-query-match-fill")) {
+        map.setPaintProperty("counties-query-match-fill", "fill-opacity", pulse);
+      }
+      if (map.getLayer("counties-query-match-line")) {
+        map.setPaintProperty("counties-query-match-line", "line-opacity", 0.55);
+        map.setPaintProperty(
+          "counties-query-match-line",
+          "line-width",
+          1.2 + pulse * 2.4
+        );
+      }
+
+      frameId = window.requestAnimationFrame(tick);
+    };
+
+    frameId = window.requestAnimationFrame(tick);
+
+    return () => {
+      active = false;
+      window.cancelAnimationFrame(frameId);
+      if (map.getLayer("counties-query-match-fill")) {
+        map.setPaintProperty("counties-query-match-fill", "fill-opacity", 0);
+      }
+      if (map.getLayer("counties-query-match-line")) {
+        map.setPaintProperty("counties-query-match-line", "line-opacity", 0);
+        map.setPaintProperty("counties-query-match-line", "line-width", 0);
+      }
+    };
+  }, [matchedCountyFips, mapLoaded]);
   // ── Re-color counties when scenario changes ────────
   useEffect(() => {
     if (!mapRef.current || !mapLoaded || !countiesLayerReady || !rawCountyGeoJSONRef.current) return;
@@ -250,12 +328,18 @@ export function MapView() {
     if (!mapRef.current || !mapLoaded) return;
     const map = mapRef.current;
     const vis = showZones ? "visible" : "none";
-    ["counties-fill", "counties-border", "states-border", "counties-hover"].forEach((id) => {
+    [
+      "counties-fill",
+      "counties-border",
+      "states-border",
+      "counties-hover",
+      "counties-query-match-fill",
+      "counties-query-match-line",
+    ].forEach((id) => {
       if (map.getLayer(id)) map.setLayoutProperty(id, "visibility", vis);
     });
   }, [showZones, mapLoaded]);
 
-  // ── Grid cell heatmap layer ────────────────────────
   useEffect(() => {
     if (!mapRef.current || !mapLoaded) return;
     const map = mapRef.current;
@@ -301,7 +385,11 @@ export function MapView() {
         id: "grid-cells-line",
         type: "line",
         source: "grid-cells",
-        paint: { "line-color": ["get", "color"], "line-width": 0.3, "line-opacity": 0.15 },
+        paint: {
+          "line-color": ["get", "color"],
+          "line-width": 0.3,
+          "line-opacity": 0.15,
+        },
       });
       map.addLayer({
         id: "grid-cells-hover",
@@ -321,14 +409,32 @@ export function MapView() {
         map.setPaintProperty("grid-cells-hover", "fill-opacity", 0.12);
 
         if (popupRef.current) popupRef.current.remove();
-        const costColor = props.costScore < 30 ? "#10b981" : props.costScore < 50 ? "#22d3ee" : props.costScore < 70 ? "#f59e0b" : "#ef4444";
-        const costLabel = props.costScore < 30 ? "Excellent" : props.costScore < 50 ? "Good" : props.costScore < 70 ? "Moderate" : "High Cost";
+        const costColor =
+          props.costScore < 30
+            ? "#10b981"
+            : props.costScore < 50
+              ? "#22d3ee"
+              : props.costScore < 70
+                ? "#f59e0b"
+                : "#ef4444";
+        const costLabel =
+          props.costScore < 30
+            ? "Excellent"
+            : props.costScore < 50
+              ? "Good"
+              : props.costScore < 70
+                ? "Moderate"
+                : "High Cost";
 
-        popupRef.current = new maplibregl.Popup({ closeButton: false, closeOnClick: false, offset: 12 })
+        popupRef.current = new maplibregl.Popup({
+          closeButton: false,
+          closeOnClick: false,
+          offset: 12,
+        })
           .setLngLat(e.lngLat)
           .setHTML(
             `<div style="font-family:Inter,sans-serif; background: rgba(11, 15, 20, 0.95); backdrop-filter: blur(8px); border: 1px solid rgba(31, 41, 55, 0.5); padding: 8px; border-radius: 8px;">
-              <div style="font-size:12px;font-weight:600;margin-bottom:5px;color:${costColor}">${costLabel} <span style="color:#9ca3af;font-weight:400;font-size:10px;">— ${props.region}</span></div>
+              <div style="font-size:12px;font-weight:600;margin-bottom:5px;color:${costColor}">${costLabel} <span style="color:#9ca3af;font-weight:400;font-size:10px;">- ${props.region}</span></div>
               <div style="display:grid;grid-template-columns:1fr 1fr;gap:3px 14px;font-size:11px;">
                 <span style="color:#9ca3af;">CF</span><span style="color:white;font-weight:500;text-align:right;">${(props.capacityFactor * 100).toFixed(1)}%</span>
                 <span style="color:#9ca3af;">LCOE</span><span style="color:white;font-weight:500;text-align:right;">$${Number(props.lcoe).toFixed(1)}/MWh</span>
@@ -358,7 +464,6 @@ export function MapView() {
     }
   }, [gridCells, mapLoaded, selectCell, showZones]);
 
-  // ── Grid visibility toggle ─────────────────────────
   useEffect(() => {
     if (!mapRef.current || !mapLoaded) return;
     const map = mapRef.current;
@@ -368,7 +473,6 @@ export function MapView() {
     });
   }, [showHeatmap, showZones, mapLoaded]);
 
-  // ── Resize on panel changes ────────────────────────
   useEffect(() => {
     if (!mapRef.current) return;
     setTimeout(() => mapRef.current?.resize(), 350);
@@ -378,7 +482,6 @@ export function MapView() {
     <div className="fixed inset-0 z-0">
       <div ref={mapContainer} className="w-full h-full" />
 
-      {/* ── Legend ──────────────────────────────────── */}
       <div
         className="fixed z-20 glass-panel rounded-lg px-3 py-2.5 shadow-lg"
         style={{
@@ -404,13 +507,15 @@ export function MapView() {
         ) : showHeatmap ? (
           <>
             <p className="text-[9px] text-gray-400 uppercase tracking-wider mb-1.5 font-medium">
-              Cost Score — {techType === "solar" ? "Solar" : "Wind"}
+              Cost Score - {techType === "solar" ? "Solar" : "Wind"}
             </p>
             <div className="flex items-center gap-1.5">
               <span className="text-[9px] text-gray-400">Low</span>
               <div
                 className="w-24 h-1.5 rounded-full"
-                style={{ background: "linear-gradient(to right, #22c55e, #eab308, #ef4444)" }}
+                style={{
+                  background: "linear-gradient(to right, #22c55e, #eab308, #ef4444)",
+                }}
               />
               <span className="text-[9px] text-gray-400">High</span>
             </div>
