@@ -94,8 +94,8 @@ export function TimeSlider() {
           id="time-slider"
           type="range"
           min={0}
-          max={23.99}
-          step={0.05}
+          max={23.999}
+          step="any"
           value={timeHour}
           onChange={(e) => setTimeHour(Number(e.target.value))}
         />
