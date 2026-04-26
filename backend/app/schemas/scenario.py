@@ -1,4 +1,4 @@
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -178,6 +178,18 @@ class SiteMetrics(BaseModel):
         description="Distance to nearest transmission line (km)"
     )
     grid_zone_id: str | None = Field(description="Grid zone/balancing authority")
+    load_gw: float | None = Field(
+        default=None, description="Estimated electricity load in GW"
+    )
+    renewable_percent: float | None = Field(
+        default=None, ge=0, le=100, description="Estimated renewable generation share"
+    )
+    generation_profile: list[dict[str, float]] | None = Field(
+        default=None, description="Optional hourly generation and price profile"
+    )
+    carbon_profile: list[dict[str, float]] | None = Field(
+        default=None, description="Optional hourly carbon intensity profile"
+    )
 
 
 class SiteResponse(BaseModel):
@@ -205,3 +217,55 @@ class HealthResponse(BaseModel):
         default=False, description="Whether processed data is loaded"
     )
     store_row_count: int = Field(default=0, description="Number of cells in store")
+
+
+class BriefRequest(BaseModel):
+    """Input for site assessment brief generation."""
+
+    site: dict[str, Any]
+    scenario: dict[str, Any]
+
+
+class BriefResponse(BaseModel):
+    """Site assessment brief response."""
+
+    status: str = "success"
+    text: str
+    job_id: str | None = None
+    cached: bool = False
+
+
+class CountyJobRequest(BaseModel):
+    """Request body for asynchronously computing a county site response."""
+
+    fips_code: str = Field(description="5-digit county FIPS code")
+    scenario: ScenarioRequest = Field(default_factory=ScenarioRequest)
+
+
+class BriefJobRequest(BaseModel):
+    """Request body for asynchronously generating a site assessment brief."""
+
+    site: dict[str, Any]
+    scenario: dict[str, Any]
+
+
+class JobSubmitResponse(BaseModel):
+    """Response returned when a local async job is submitted."""
+
+    job_id: str
+    status: str
+    cached: bool = False
+
+
+class JobStatusResponse(BaseModel):
+    """Serializable status for an async orchestration job."""
+
+    job_id: str
+    job_type: str
+    status: str
+    created_at: str
+    updated_at: str
+    input_hash: str
+    artifact_key: str | None = None
+    result: dict[str, Any] | None = None
+    error: str | None = None

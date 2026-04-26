@@ -7,27 +7,17 @@ Loads processed data on startup and exposes scoring endpoints.
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from backend.app.api.routes import router
 from backend.app.core.config import settings
-from backend.app.data.processed_store import get_store
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan handler for startup/shutdown events."""
-    # Startup: load processed data
-    store = get_store()
-    try:
-        store.load(settings.processed_dataset_path)
-        print(f"Loaded {store.row_count} cells from {settings.processed_dataset_path}")
-    except FileNotFoundError:
-        print(
-            f"Warning: Processed dataset not found at {settings.processed_dataset_path}"
-        )
-        print("API will return errors until data is available.")
-    except ValueError as e:
-        print(f"Warning: Processed dataset validation failed: {e}")
+    # County orchestration uses deterministic artifacts today; grid-cell loading
+    # remains available through ProcessedStore for the legacy heatmap endpoints.
 
     yield
 
@@ -41,4 +31,18 @@ app = FastAPI(
     version="0.1.0",
     lifespan=lifespan,
 )
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:5173", 
+        "http://localhost:5174",
+        "http://localhost:5175",
+        "http://localhost:3000"
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 app.include_router(router)
