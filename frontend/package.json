@@ -10,12 +10,19 @@
   },
   "dependencies": {
     "@deck.gl/core": "^9.1.14",
+    "@deck.gl/geo-layers": "^9.1.14",
     "@deck.gl/layers": "^9.1.14",
     "@deck.gl/mapbox": "^9.1.14",
+    "@deck.gl/react": "^9.1.14",
+    "@tailwindcss/vite": "^4.2.4",
+    "framer-motion": "^12.38.0",
+    "lucide-react": "^1.11.0",
     "maplibre-gl": "^4.7.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "recharts": "^2.15.4"
+    "recharts": "^2.15.4",
+    "tailwindcss": "^4.2.4",
+    "zustand": "^5.0.12"
   },
   "devDependencies": {
     "@types/react": "^18.3.12",

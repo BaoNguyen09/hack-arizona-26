@@ -1,120 +1,142 @@
-:root {
-  color-scheme: light;
-  --bg: #f4f0e8;
-  --surface: rgba(255, 250, 241, 0.78);
-  --ink: #13261f;
-  --muted: #52625a;
-  --accent: #c96b2c;
-  --accent-2: #1f7a63;
-  --line: rgba(19, 38, 31, 0.12);
-  font-family: "Georgia", "Iowan Old Style", serif;
+@import "tailwindcss";
+
+/* ── Custom scrollbar ───────────────────────────────────── */
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.2);
 }
 
-* {
-  box-sizing: border-box;
+/* ── MapLibre overrides ─────────────────────────────────── */
+.maplibregl-map {
+  font-family: "Inter", sans-serif !important;
+}
+.maplibregl-ctrl-attrib-inner {
+  font-size: 10px !important;
+  color: rgba(255, 255, 255, 0.3) !important;
+}
+.maplibregl-ctrl-attrib-inner a {
+  color: rgba(255, 255, 255, 0.4) !important;
+}
+.maplibregl-ctrl-group {
+  background: rgba(17, 24, 39, 0.9) !important;
+  border: 1px solid rgba(31, 41, 55, 0.6) !important;
+  border-radius: 8px !important;
+  backdrop-filter: blur(12px) !important;
+}
+.maplibregl-ctrl-group button {
+  width: 32px !important;
+  height: 32px !important;
+}
+.maplibregl-ctrl-group button + button {
+  border-top: 1px solid rgba(31, 41, 55, 0.6) !important;
+}
+.maplibregl-ctrl button .maplibregl-ctrl-icon {
+  filter: invert(1) brightness(0.8) !important;
+}
+.maplibregl-popup-content {
+  background: rgba(10, 10, 10, 0.95) !important;
+  color: white !important;
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  border-radius: 8px !important;
+  padding: 12px 16px !important;
+  backdrop-filter: blur(16px) !important;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5) !important;
+  font-family: "Inter", sans-serif !important;
+  font-size: 13px !important;
+}
+.maplibregl-popup-tip {
+  border-top-color: rgba(10, 10, 10, 0.95) !important;
+}
+.maplibregl-popup-close-button {
+  color: rgba(255, 255, 255, 0.5) !important;
+  font-size: 16px !important;
 }
 
-body {
-  margin: 0;
-  min-height: 100vh;
-  background:
-    radial-gradient(circle at top left, rgba(201, 107, 44, 0.24), transparent 28%),
-    radial-gradient(circle at bottom right, rgba(31, 122, 99, 0.22), transparent 32%),
-    linear-gradient(135deg, #ece4d6 0%, #f7f3ec 48%, #efe7d8 100%);
-  color: var(--ink);
+/* ── Animated glow ──────────────────────────────────────── */
+@keyframes pulse-glow {
+  0%, 100% { opacity: 0.6; }
+  50% { opacity: 1; }
+}
+.animate-pulse-glow {
+  animation: pulse-glow 2s ease-in-out infinite;
 }
 
-#root {
-  min-height: 100vh;
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+.skeleton {
+  background: linear-gradient(90deg, rgba(255,255,255,0.04) 25%, rgba(255,255,255,0.08) 50%, rgba(255,255,255,0.04) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s ease-in-out infinite;
+  border-radius: 6px;
 }
 
-.app-shell {
-  display: grid;
-  grid-template-columns: minmax(280px, 420px) 1fr;
-  min-height: 100vh;
+/* ── Glass panel base ───────────────────────────────────── */
+.glass-panel {
+  background: rgba(10, 10, 10, 0.85);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
 }
 
-.hero-panel,
-.map-panel {
-  padding: 2rem;
+/* ── Recharts dark overrides ────────────────────────────── */
+.recharts-cartesian-grid-horizontal line,
+.recharts-cartesian-grid-vertical line {
+  stroke: rgba(255, 255, 255, 0.05) !important;
+}
+.recharts-text {
+  fill: rgba(255, 255, 255, 0.4) !important;
+  font-size: 11px !important;
 }
 
-.hero-panel {
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  gap: 1rem;
-}
-
-.eyebrow {
-  margin: 0;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-  color: var(--accent-2);
-  font-size: 0.85rem;
-}
-
-.hero-panel h1 {
-  margin: 0;
-  font-size: clamp(2.5rem, 4vw, 4.8rem);
-  line-height: 0.94;
-  max-width: 10ch;
-}
-
-.body-copy {
-  margin: 0;
-  max-width: 34ch;
-  color: var(--muted);
-  font-size: 1.05rem;
-  line-height: 1.7;
-}
-
-.map-panel {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.map-placeholder {
+/* ── Time slider ────────────────────────────────────────── */
+input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+  cursor: pointer;
   width: 100%;
-  min-height: 72vh;
-  border: 1px solid var(--line);
-  border-radius: 28px;
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.72), rgba(255, 255, 255, 0.38)),
-    repeating-linear-gradient(
-      90deg,
-      transparent 0,
-      transparent 69px,
-      rgba(19, 38, 31, 0.05) 70px
-    ),
-    repeating-linear-gradient(
-      0deg,
-      transparent 0,
-      transparent 69px,
-      rgba(19, 38, 31, 0.05) 70px
-    );
-  box-shadow: 0 24px 60px rgba(57, 42, 20, 0.12);
-  display: grid;
-  place-items: center;
-  color: var(--muted);
-  font-size: 1.05rem;
 }
-
-@media (max-width: 900px) {
-  .app-shell {
-    grid-template-columns: 1fr;
-  }
-
-  .hero-panel {
-    padding-bottom: 0;
-  }
-
-  .hero-panel h1 {
-    max-width: 12ch;
-  }
-
-  .map-placeholder {
-    min-height: 48vh;
-  }
+input[type="range"]::-webkit-slider-track {
+  height: 4px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 2px;
+}
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #fff;
+  margin-top: -5px;
+  box-shadow: 0 0 10px rgba(255, 255, 255, 0.2);
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+input[type="range"]::-webkit-slider-thumb:hover {
+  transform: scale(1.2);
+  box-shadow: 0 0 16px rgba(255, 255, 255, 0.4);
+}
+input[type="range"]::-moz-range-track {
+  height: 4px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 2px;
+}
+input[type="range"]::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #fff;
+  border: none;
+  box-shadow: 0 0 10px rgba(255, 255, 255, 0.2);
 }
