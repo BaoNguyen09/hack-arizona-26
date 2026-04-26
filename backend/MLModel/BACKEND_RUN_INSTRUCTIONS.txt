@@ -1,0 +1,54 @@
+Backend setup and run instructions
+
+1. Create and activate a virtual environment
+
+Windows PowerShell:
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+
+macOS/Linux:
+python -m venv .venv
+source .venv/bin/activate
+
+2. Install dependencies
+
+pip install -r requirements.txt
+
+3. Make sure these files are present
+
+electricity_cost_model.py
+forecast_future_usage.py
+forecast_api.py
+electricity_usage_model.pkl
+state_energy_timeseries.csv
+
+4. Start the backend
+
+python -m uvicorn forecast_api:app --reload --port 8000
+
+5. Open API docs
+
+http://127.0.0.1:8000/docs
+
+6. Example request
+
+POST http://127.0.0.1:8000/forecast
+
+Body:
+{
+  "start": "2026-04-26T01:00:00Z",
+  "hours": 1,
+  "states": ["CA"]
+}
+
+7. Example curl
+
+curl -X POST "http://127.0.0.1:8000/forecast" ^
+  -H "Content-Type: application/json" ^
+  -d "{\"start\":\"2026-04-26T01:00:00Z\",\"hours\":1,\"states\":[\"CA\"]}"
+
+Notes:
+- Omit states to forecast every state available in state_energy_timeseries.csv.
+- Use hours for hourly forecast length.
+- Or provide end instead of hours. End is exclusive.
+- Price and source mix values are embedded in forecast_future_usage.py from the February state profile.
