@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Activity,
@@ -49,6 +49,7 @@ export function LeftSidebar() {
     isLive,
     setIsLive,
     timeHour,
+    setTimeHour,
     weightLcoe,
     weightRevenue,
     weightCarbon,
@@ -59,6 +60,18 @@ export function LeftSidebar() {
 
   // Current metrics from time series at selected hour
   const currentData = timeSeries[timeHour] || timeSeries[14];
+
+  // Forecast playback loop
+  useEffect(() => {
+    let interval: number;
+    if (!isLive) {
+      interval = window.setInterval(() => {
+        const currentHour = useLumenStore.getState().timeHour;
+        setTimeHour((currentHour + 1) % 24);
+      }, 1500); // 1.5 seconds per hour
+    }
+    return () => clearInterval(interval);
+  }, [isLive, setTimeHour]);
 
   const carbonFree = useMemo(() => {
     const clean =
@@ -207,6 +220,9 @@ export function LeftSidebar() {
                     <OverviewTab
                       timeSeries={timeSeries}
                       currentData={currentData}
+                      capex={capex}
+                      carbonPrice={carbonPrice}
+                      techType={techType}
                     />
                   )}
                   {sidebarTab === "carbon" && (
@@ -304,8 +320,8 @@ function CarbonGauge({
   return (
     <div className="flex items-start gap-4">
       {/* Gauge */}
-      <div className="relative flex-shrink-0">
-        <svg width="140" height="80" viewBox="0 0 140 80">
+      <div className="relative flex-shrink-0 w-[140px] h-[80px]">
+        <svg width="140" height="80" viewBox="0 0 140 80" className="absolute top-0 left-0">
           {/* Track */}
           <path
             d={trackPath}
@@ -329,11 +345,11 @@ function CarbonGauge({
             />
           )}
         </svg>
-        <div className="absolute inset-x-0 bottom-0 text-center">
-          <span className="text-2xl font-bold tabular-nums" style={{ color: gaugeColor }}>
+        <div className="absolute inset-0 flex flex-col items-center justify-end pb-1.5">
+          <span className="text-[26px] font-bold tabular-nums leading-none tracking-tight" style={{ color: gaugeColor }}>
             <AnimatedNumber value={value} decimals={0} />
           </span>
-          <p className="text-[9px] text-gray-500 -mt-0.5">gCO₂eq/kWh</p>
+          <p className="text-[9px] text-gray-500 mt-0.5">gCO₂eq/kWh</p>
         </div>
       </div>
 
@@ -468,12 +484,46 @@ function PowerOriginBreakdown({ currentData }: { currentData: any }) {
 function OverviewTab({
   timeSeries,
   currentData,
+  capex,
+  carbonPrice,
+  techType,
 }: {
   timeSeries: any[];
   currentData: any;
+  capex: number;
+  carbonPrice: number;
+  techType: string;
 }) {
+  // Compute optimized metrics for the grid using average CONUS characteristics
+  const avgCf = techType === "solar" ? 0.22 : 0.35;
+  const crf = (0.06 * Math.pow(1.06, 25)) / (Math.pow(1.06, 25) - 1);
+  const lcoe = ((capex * crf + 35) / (avgCf * 8760)) * 1000;
+  
+  // A rough composite score based on current data
+  const avgRev = currentData.price * avgCf;
+  const avgCarbonVal = currentData.carbonIntensity * avgCf * carbonPrice * 1e-3;
+  const compositeScore = lcoe - avgRev - avgCarbonVal;
+
   return (
     <div className="space-y-4">
+      {/* Optimized Cost Metrics */}
+      <Section title="Optimized Scenario Cost" icon={DollarSign}>
+        <div className="grid grid-cols-2 gap-2 mt-2">
+          <div className="px-3 py-2 rounded-lg bg-gray-800/40 border border-gray-700/30">
+            <span className="text-[10px] text-gray-500 uppercase tracking-wide">National {techType === "solar" ? "Solar" : "Wind"} LCOE</span>
+            <div className="text-sm font-bold text-white mt-0.5 tabular-nums">
+              ${lcoe.toFixed(1)} <span className="text-[10px] text-gray-500 font-normal">/MWh</span>
+            </div>
+          </div>
+          <div className="px-3 py-2 rounded-lg bg-gray-800/40 border border-gray-700/30">
+            <span className="text-[10px] text-gray-500 uppercase tracking-wide">Composite Score</span>
+            <div className="text-sm font-bold mt-0.5 tabular-nums" style={{ color: compositeScore < 0 ? "#10b981" : "#f59e0b" }}>
+              {compositeScore.toFixed(1)}
+            </div>
+          </div>
+        </div>
+      </Section>
+
       {/* Installed Capacity */}
       <Section title="Installed capacity (GW)" icon={Zap}>
         <CapacityBar data={installedCapacity} />

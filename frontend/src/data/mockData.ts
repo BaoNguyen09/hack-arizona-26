@@ -192,7 +192,11 @@ export function generateGridCells(
 
 // ── Generate Time Series (24h for left sidebar) ────────
 export function generateTimeSeries(): TimeSeriesPoint[] {
-  const rand = seededRandom(123);
+  // Use a dynamic seed based on the current hour so data changes over time
+  // but remains stable during a single session, or change on reload.
+  // Using Date.now() divided by a small block so it feels dynamic but doesn't flicker on re-renders.
+  const dynamicSeed = Math.floor(Date.now() / 60000); 
+  const rand = seededRandom(dynamicSeed);
   const points: TimeSeriesPoint[] = [];
 
   for (let h = 0; h < 24; h++) {
