@@ -358,14 +358,18 @@ export function MapView() {
   }, [matchedCountyFips, mapLoaded]);
   const currentHourInt = Math.floor(timeHour);
 
-  // ── Re-color counties when scenario changes ────────
+  // ── Fetch metrics when core scenario parameters change ────────
+  useEffect(() => {
+    void refreshCountyMetrics();
+  }, [techType, capex, carbonPrice, weightLcoe, weightRevenue, weightCarbon, refreshCountyMetrics]);
+
+  // ── Re-color counties continuously when data or time changes ────────
   useEffect(() => {
     if (!mapRef.current || !mapLoaded || !countiesLayerReady || !rawCountyGeoJSONRef.current) return;
     const map = mapRef.current;
     const source = map.getSource("counties") as maplibregl.GeoJSONSource | undefined;
     if (!source) return;
 
-    void refreshCountyMetrics();
     const enhanced = enhanceCountyGeoJSON(rawCountyGeoJSONRef.current, {
       techType,
       capex,
@@ -389,7 +393,6 @@ export function MapView() {
     mapLoaded,
     countiesLayerReady,
     countyMetricsByFips,
-    refreshCountyMetrics,
   ]);
 
   // ── Zone visibility toggle ─────────────────────────
