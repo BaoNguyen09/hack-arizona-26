@@ -1,90 +1,74 @@
-# Lumen
+# Lumen — Renewable Energy Cost Optimization Intelligence Platform
 
-Lumen is a renewable energy cost optimization intelligence platform that turns weather, power prices, carbon intensity, and infrastructure constraints into an interactive decision surface for siting and scenario analysis.
+Lumen is a map-based intelligence platform that visualizes renewable energy cost optimization across geography and time. It fuses weather-dependent generation models, wholesale electricity prices, grid carbon intensity, and infrastructure constraints into a single interactive decision surface.
 
-## What This Repo Contains
+Users explore a live choropleth map showing where energy is cheapest, click any county to see a detailed site assessment with LCOE breakdowns, revenue projections, carbon displacement metrics, and an AI-generated brief — all in seconds.
 
-- `backend/`: FastAPI application for scenario scoring, site detail APIs, and AI-generated briefs
-- `frontend/`: React 18 + TypeScript + Deck.gl + MapLibre client
-- `data/`: local-first storage for raw ingests, processed outputs, and reference datasets
-- `scripts/`: ingestion, preprocessing, validation, and export jobs
-- `docs/`: architecture notes and GitHub-ready backlog artifacts
-- `.github/`: issue templates and pull request hygiene
+---
 
-## Product Goals
+## Features
 
-- Render a composite renewable cost heatmap over CONUS in under 200ms after scenario changes
-- Pre-compute weather, price, carbon, and infrastructure joins into a local analytics-ready dataset
-- Support Solar PV and Onshore Wind scenario analysis
-- Produce human-readable site assessment briefs from structured model outputs
+| Feature | Status |
+|---|---|
+| **County-level choropleth map** — 3,100+ US counties colored by carbon intensity using real EIA state-level energy data | ✅ Shipped |
+| **Scenario configurator** — Technology toggle (Solar/Wind), CAPEX slider, carbon price slider | ✅ Shipped |
+| **Site investigation panel** — Click any county for LCOE, capacity factor, revenue, carbon displacement, generation charts, and AI brief | ✅ Shipped |
+| **Time-series animation** — Floating playback slider to animate data across hours | ✅ Shipped |
+| **Analytics sidebar** — National overview with carbon intensity, electricity mix, price, and load charts | ✅ Shipped |
+| **Backend API** — FastAPI with deterministic county scoring engine and AI brief generation | ✅ Shipped |
+| **Natural language query** — NL scenario query bar (UI shell + backend stub) | 🔜 Planned |
+| **Comparison mode** — Pin 2–3 candidate sites for side-by-side analysis | 🔜 Planned |
+| **Real data ingestion** — NOAA GFS, EIA, NASA POWER, Electricity Maps | 🔜 Planned |
 
-## Initial Architecture
+---
 
-### Data pipeline
+## Architecture
 
-1. Ingest NOAA GFS, NREL ATB, HIFLD, EIA Open Data, EIA-860, EPA eGRID, and Electricity Maps inputs
-2. Normalize weather, market, carbon, and infrastructure data to a shared spatial grid
-3. Pre-compute capacity factors, nearest price hubs, grid zones, and transmission proximity
-4. Export a local Parquet or SQLite/GeoPackage artifact for fast backend hydration
+```
+Frontend (React + TypeScript + Vite)
+  ├── MapLibre GL JS — vector choropleth map (county-level)
+  ├── Recharts — site-level diagnostic charts
+  ├── Zustand — state management
+  └── Framer Motion — animations
 
-### Backend
+Backend (FastAPI + Python)
+  ├── /county/{fips} — deterministic site metrics (LCOE, CF, revenue, carbon)
+  ├── /brief — AI-generated site assessment text
+  ├── /query — NL query parser (stub)
+  └── NumPy scoring engine (LCOE, CRF, carbon value calculations)
 
-- FastAPI service for `/health`, `/heatmap`, `/site`, and future `/brief` and `/query` routes
-- NumPy vectorized optimization engine for LCOE, revenue, carbon value, and composite scoring
-- Physics models for PVWatts-style solar and IEC-style wind generation
-- Developer docs: see [docs/api-harness.md](/Users/shanejanney/Desktop/Lumen/docs/api-harness.md)
-
-### Frontend
-
-- React 18 + Vite
-- MapLibre GL + Deck.gl for the primary spatial experience
-- Recharts for site-level diagnostics
-- Minimalist scenario controls with sub-second feedback
-
-## Repo Layout
-
-```text
-Lumen/
-├── .github/
-│   ├── ISSUE_TEMPLATE/
-│   └── PULL_REQUEST_TEMPLATE.md
-├── backend/
-│   ├── app/
-│   │   ├── api/
-│   │   ├── core/
-│   │   ├── models/
-│   │   ├── schemas/
-│   │   └── services/
-│   └── tests/
-├── data/
-│   ├── processed/
-│   ├── raw/
-│   └── reference/
-├── docs/
-│   ├── architecture.md
-│   ├── backlog.md
-│   └── issues/
-├── frontend/
-│   ├── public/
-│   └── src/
-├── infra/
-├── notebooks/
-├── scripts/
-├── .env.example
-├── .gitignore
-├── Makefile
-└── requirements.txt
+Data Layer
+  ├── State-level energy profiles (EIA 2026-02 data for all 50 states)
+  ├── Deterministic county-level LCG engine (FIPS-seeded)
+  └── US Counties + States GeoJSON (Census Bureau)
 ```
 
-## Getting Started
+---
+
+## Tech Stack
+
+| Layer | Technology | Cost |
+|---|---|---|
+| **Frontend** | React 18, TypeScript, Vite, MapLibre GL JS, Recharts, Zustand, Framer Motion, Tailwind CSS | $0 |
+| **Map tiles** | MapTiler free tier | $0 |
+| **Backend** | Python 3.11+, FastAPI, uvicorn, NumPy, pandas | $0 |
+| **Data** | EIA Open Data, EPA eGRID, Census GeoJSON | $0 |
+| **LLM** (planned) | GPT-4o-mini or Groq (Llama 3) | ~$0–1 |
+
+---
+
+## Quickstart
+
+### Prerequisites
+
+- Node.js 18+
+- Python 3.11+
 
 ### Backend
 
 ```bash
-python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-uvicorn backend.app.main:app --reload
+pip install fastapi uvicorn pandas pydantic_settings numpy
+python -m uvicorn backend.app.main:app --reload --port 8000
 ```
 
 ### Frontend
@@ -95,23 +79,85 @@ npm install
 npm run dev
 ```
 
-## Environment
+The frontend will be available at `http://localhost:5173` (or the next available port).
 
-Copy `.env.example` into `.env` and fill in any API keys you intend to use.
+---
 
-- `EIA_API_KEY`
-- `ELECTRICITY_MAPS_API_KEY`
-- `OPENAI_API_KEY`
-- `MAPTILER_API_KEY`
+## API
 
-## Suggested Near-Term Milestones
+Full API documentation is available at [docs/api.md](docs/api.md).
 
-1. Land data ingestion hooks for all external sources
-2. Build the pre-computation artifact for ~3,500 CONUS grid cells
-3. Validate solar and wind generation models against trusted benchmarks
-4. Expose a fast composite scoring API
-5. Connect the map layer and site investigation panel end to end
+When the backend is running, interactive Swagger docs are at `http://localhost:8000/docs`.
 
-## Backlog
+### Key endpoints
 
-The issue-ready implementation plan is documented in [docs/backlog.md](/Users/shanejanney/Desktop/Lumen/docs/backlog.md) and split into individual GitHub-ready issue drafts under [docs/issues](/Users/shanejanney/Desktop/Lumen/docs/issues).
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/county/{fips_code}` | Site metrics for a US county |
+| `POST` | `/brief` | AI-generated site assessment |
+| `POST` | `/query` | Natural language query (stub) |
+| `GET` | `/health` | Health check |
+
+---
+
+## Data Sources
+
+| Source | Data | Used For |
+|---|---|---|
+| **EIA Open Data** (2026-02) | State-level electricity prices, generation mix (solar, wind, hydro, fossil %) | County-level energy profile baselines |
+| **US Census Bureau** | County and state GeoJSON boundaries | Map rendering |
+| **NREL ATB** | Reference CAPEX, OPEX, LCOE assumptions | Scoring engine defaults |
+| **NOAA GFS** (planned) | Solar irradiance, wind speed forecasts | Weather-to-generation model |
+| **NASA POWER** (planned) | Solar climatology | Validation/gap-fill |
+| **EPA eGRID** (planned) | Annual grid emission factors | Carbon intensity baselines |
+| **HIFLD** (planned) | Transmission line routes | Infrastructure overlay |
+
+---
+
+## Project Structure
+
+```
+Lumen/
+├── backend/
+│   └── app/
+│       ├── api/routes.py        # API endpoints
+│       ├── core/config.py       # Settings
+│       ├── data/
+│       │   ├── county_store.py  # Deterministic county data generator
+│       │   ├── state_data.py    # EIA state energy profiles
+│       │   └── processed_store.py
+│       ├── engine/scoring.py    # LCOE/revenue/carbon scoring
+│       ├── schemas/scenario.py  # Pydantic models
+│       ├── services/            # Business logic
+│       └── main.py              # FastAPI app
+├── frontend/
+│   └── src/
+│       ├── components/          # React UI components
+│       ├── data/                # Client-side data (zones, mockData, stateData)
+│       ├── lib/api.ts           # Backend API client
+│       ├── store/               # Zustand state management
+│       └── App.tsx              # Root component
+├── docs/
+│   └── api.md                   # REST API reference
+├── .env.example
+├── requirements.txt
+└── README.md
+```
+
+---
+
+## Environment Variables
+
+Copy `.env.example` to `.env` and fill in API keys as needed:
+
+```
+EIA_API_KEY=          # EIA Open Data API key (future)
+OPENAI_API_KEY=       # For LLM-powered briefs (future)
+MAPTILER_API_KEY=     # Map tile rendering
+```
+
+---
+
+## License
+
+MIT — see [LICENSE](LICENSE).
