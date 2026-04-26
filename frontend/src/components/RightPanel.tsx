@@ -194,20 +194,7 @@ function CountyPanelContent({
                 AI Assessment
               </h3>
             </div>
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              transition={{ delay: 0.3, duration: 0.5 }}
-              className="relative px-4 py-3 rounded-xl text-[12px] leading-relaxed text-gray-300 bg-gray-800/40 border border-gray-700/30"
-            >
-              <div
-                className="absolute top-0 left-0 w-full h-px"
-                style={{
-                  background: "linear-gradient(to right, transparent, rgba(255,255,255,0.1), transparent)",
-                }}
-              />
-              {assessment.aiSummary}
-            </motion.div>
+            <AssessmentCard text={assessment.aiSummary} />
           </div>
         ) : null}
       </div>
@@ -316,20 +303,7 @@ function SitePanelContent({
               AI Assessment
             </h3>
           </div>
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ delay: 0.3, duration: 0.5 }}
-            className="relative px-4 py-3 rounded-xl text-[12px] leading-relaxed text-gray-300 bg-gray-800/40 border border-gray-700/30"
-          >
-            <div
-              className="absolute top-0 left-0 w-full h-px"
-              style={{
-                background: "linear-gradient(to right, transparent, rgba(255,255,255,0.1), transparent)",
-              }}
-            />
-            {assessment.aiSummary}
-          </motion.div>
+          <AssessmentCard text={assessment.aiSummary} />
         </div>
       </div>
     </>
@@ -337,6 +311,70 @@ function SitePanelContent({
 }
 
 // ── Shared components ──────────────────────────────────
+function AssessmentCard({ text }: { text: string }) {
+  const lines = text
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const verdictLine = lines.find((line) => line.startsWith("Verdict:"));
+  const detailLines = lines.filter((line) => !line.startsWith("Verdict:"));
+  const verdictText = verdictLine?.replace(/^Verdict:\s*/, "") ?? "";
+
+  const verdictTone = verdictText.toLowerCase().includes("attractive")
+    ? "text-emerald-200"
+    : verdictText.toLowerCase().includes("challenged")
+      ? "text-rose-200"
+      : "text-amber-100";
+
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      transition={{ delay: 0.3, duration: 0.5 }}
+      className="relative px-4 py-3 rounded-xl text-[12px] leading-relaxed text-gray-300 bg-gray-800/40 border border-gray-700/30"
+    >
+      <div
+        className="absolute top-0 left-0 w-full h-px"
+        style={{
+          background: "linear-gradient(to right, transparent, rgba(255,255,255,0.1), transparent)",
+        }}
+      />
+      {verdictText ? (
+        <div className="mb-3">
+          <p className="text-[13px] font-semibold text-white">
+            <span className="text-gray-400">Verdict: </span>
+            <span className={verdictTone}>{verdictText}</span>
+          </p>
+        </div>
+      ) : null}
+      {detailLines.length > 0 ? (
+        <div className="space-y-3">
+          {detailLines.map((line) => {
+            const match = line.match(/^([^:]+):\s*(.*)$/);
+            if (!match) {
+              return (
+                <p key={line} className="whitespace-pre-line text-gray-300">
+                  {line}
+                </p>
+              );
+            }
+
+            const [, label, body] = match;
+            return (
+              <p key={line} className="text-[12px] leading-relaxed text-gray-200">
+                <strong className="font-semibold text-white">{label}: </strong>
+                {body}
+              </p>
+            );
+          })}
+        </div>
+      ) : (
+        <p className="whitespace-pre-line text-gray-300">{text}</p>
+      )}
+    </motion.div>
+  );
+}
+
 function MetricCard({
   icon: Icon,
   label,
