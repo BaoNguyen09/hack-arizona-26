@@ -392,8 +392,13 @@ def _extract_region(lowered_query: str) -> str | None:
         if state_name in lowered_query:
             return state_name
 
+    # Avoid mis-parsing common English tokens as state abbreviations.
+    # Example: "tell me ..." should not be interpreted as ME (Maine).
+    stop_tokens = {"me", "us", "we"}
     tokens = re.findall(r"\b[a-z]{2}\b", lowered_query)
     for token in tokens:
+        if token in stop_tokens:
+            continue
         if token.upper() in STATE_ABBR_TO_NAME:
             return token.upper()
 
