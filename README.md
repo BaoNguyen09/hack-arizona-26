@@ -4,6 +4,10 @@ Lumen is a map-based intelligence platform that visualizes renewable energy cost
 
 Users explore a live choropleth map showing where energy is cheapest, click any county to see a detailed site assessment with LCOE breakdowns, revenue projections, carbon displacement metrics, and an AI-generated brief — all in seconds.
 
+![Lumen Dashboard](docs/assets/dashboard-overview.png)
+
+![Site Investigation Panel](docs/assets/site-investigation.png)
+
 ---
 
 ## Features
