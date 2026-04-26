@@ -18,6 +18,7 @@ data/raw/*
 !data/raw/.gitkeep
 data/processed/*
 !data/processed/.gitkeep
+!data/processed/lumen_cells.csv
 
 # Notebook noise
 .ipynb_checkpoints/
