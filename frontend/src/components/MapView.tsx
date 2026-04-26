@@ -144,8 +144,8 @@ export function MapView() {
           paint: {
             "fill-color": ["get", "color"],
             "fill-opacity": 0.7,
-            "fill-color-transition": { duration: 400, delay: 0 },
-            "fill-opacity-transition": { duration: 400, delay: 0 },
+            "fill-color-transition": { duration: 1500, delay: 0 },
+            "fill-opacity-transition": { duration: 1500, delay: 0 },
           } as any,
         });
 
@@ -356,6 +356,8 @@ export function MapView() {
       }
     };
   }, [matchedCountyFips, mapLoaded]);
+  const currentHourInt = Math.floor(timeHour);
+
   // ── Re-color counties when scenario changes ────────
   useEffect(() => {
     if (!mapRef.current || !mapLoaded || !countiesLayerReady || !rawCountyGeoJSONRef.current) return;
@@ -369,7 +371,7 @@ export function MapView() {
       capex,
       carbonPrice,
       colorMode: "cost",
-      timeHour,
+      timeHour: currentHourInt,
       weightLcoe,
       weightRevenue,
       weightCarbon,
@@ -380,7 +382,7 @@ export function MapView() {
     techType,
     capex,
     carbonPrice,
-    timeHour,
+    currentHourInt,
     weightLcoe,
     weightRevenue,
     weightCarbon,

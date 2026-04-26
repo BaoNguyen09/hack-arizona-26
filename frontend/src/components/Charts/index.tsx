@@ -12,7 +12,9 @@ import {
   ResponsiveContainer,
   CartesianGrid,
   ComposedChart,
+  ReferenceLine,
 } from "recharts";
+import { useLumenStore } from "../../store/useLumenStore";
 
 // ── Dark tooltip ───────────────────────────────────────
 function DarkTooltip({ active, payload, label }: any) {
@@ -36,6 +38,7 @@ function DarkTooltip({ active, payload, label }: any) {
 
 // ── Carbon Intensity Chart ─────────────────────────────
 export function CarbonIntensityChart({ data }: { data: any[] }) {
+  const { timeHour } = useLumenStore();
   return (
     <ResponsiveContainer width="100%" height={140}>
       <AreaChart data={data} margin={{ top: 4, right: 0, left: -20, bottom: 0 }}>
@@ -46,6 +49,7 @@ export function CarbonIntensityChart({ data }: { data: any[] }) {
           </linearGradient>
         </defs>
         <CartesianGrid strokeDasharray="3 3" />
+        <ReferenceLine x={timeHour} stroke="rgba(255,255,255,0.4)" strokeDasharray="3 3" />
         <XAxis
           dataKey="hour"
           tick={{ fontSize: 10 }}
@@ -69,6 +73,7 @@ export function CarbonIntensityChart({ data }: { data: any[] }) {
 
 // ── Electricity Mix Stacked Area ───────────────────────
 export function ElectricityMixChart({ data }: { data: any[] }) {
+  const { timeHour } = useLumenStore();
   const sources = [
     { key: "solar", color: "#f59e0b" },
     { key: "wind", color: "#06b6d4" },
@@ -117,10 +122,12 @@ export function ElectricityMixChart({ data }: { data: any[] }) {
 
 // ── Price Chart ────────────────────────────────────────
 export function PriceChart({ data }: { data: any[] }) {
+  const { timeHour } = useLumenStore();
   return (
     <ResponsiveContainer width="100%" height={120}>
       <LineChart data={data} margin={{ top: 4, right: 0, left: -20, bottom: 0 }}>
         <CartesianGrid strokeDasharray="3 3" />
+        <ReferenceLine x={timeHour} stroke="rgba(255,255,255,0.4)" strokeDasharray="3 3" />
         <XAxis
           dataKey="hour"
           tick={{ fontSize: 10 }}
@@ -144,6 +151,7 @@ export function PriceChart({ data }: { data: any[] }) {
 
 // ── Load Chart ─────────────────────────────────────────
 export function LoadChart({ data }: { data: any[] }) {
+  const { timeHour } = useLumenStore();
   return (
     <ResponsiveContainer width="100%" height={120}>
       <AreaChart data={data} margin={{ top: 4, right: 0, left: -20, bottom: 0 }}>
@@ -177,10 +185,12 @@ export function LoadChart({ data }: { data: any[] }) {
 
 // ── Net Flow Chart ─────────────────────────────────────
 export function NetFlowChart({ data }: { data: any[] }) {
+  const { timeHour } = useLumenStore();
   return (
     <ResponsiveContainer width="100%" height={120}>
       <BarChart data={data} margin={{ top: 4, right: 0, left: -20, bottom: 0 }}>
         <CartesianGrid strokeDasharray="3 3" />
+        <ReferenceLine x={timeHour} stroke="rgba(255,255,255,0.4)" strokeDasharray="3 3" />
         <XAxis
           dataKey="hour"
           tick={{ fontSize: 10 }}
@@ -206,6 +216,7 @@ export function GenerationPriceChart({
 }: {
   data: { hour: number; generation: number; price: number }[];
 }) {
+  const { timeHour } = useLumenStore();
   return (
     <ResponsiveContainer width="100%" height={180}>
       <ComposedChart data={data} margin={{ top: 4, right: 0, left: -20, bottom: 0 }}>

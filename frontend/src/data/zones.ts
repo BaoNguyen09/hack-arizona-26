@@ -30,10 +30,28 @@ export function carbonToColor(ci: number): string {
   return "#450a0a"; // Extremely Dark Red/Brown
 }
 
-// ── Cost Score → Color (green=cheap, red=expensive) ──────
-// normalizedScore: 0 = cheapest (green), 1 = most expensive (red)
-export function scoreToColor(t: number): string {
+// ── Cost Score → Color (green=cheap, red=expensive for solar; cyan=cheap, purple=expensive for wind) ──────
+// normalizedScore: 0 = cheapest, 1 = most expensive
+export function scoreToColor(t: number, techType: TechType = "solar"): string {
   const clamped = Math.max(0, Math.min(1, t));
+  
+  if (techType === "wind") {
+    if (clamped < 0.33) {
+      const s = clamped / 0.33;
+      // Cyan (34, 211, 238) to Blue (59, 130, 246)
+      return `rgb(${Math.round(34 + s * 25)},${Math.round(211 - s * 81)},${Math.round(238 + s * 8)})`;
+    } else if (clamped < 0.66) {
+      const s = (clamped - 0.33) / 0.33;
+      // Blue (59, 130, 246) to Indigo (99, 102, 241)
+      return `rgb(${Math.round(59 + s * 40)},${Math.round(130 - s * 28)},${Math.round(246 - s * 5)})`;
+    } else {
+      const s = (clamped - 0.66) / 0.34;
+      // Indigo (99, 102, 241) to Purple (147, 51, 234)
+      return `rgb(${Math.round(99 + s * 48)},${Math.round(102 - s * 51)},${Math.round(241 - s * 7)})`;
+    }
+  }
+
+  // Solar (default)
   if (clamped < 0.33) {
     const s = clamped / 0.33;
     return `rgb(${Math.round(34 + s * 211)},${Math.round(197 - s * 39)},${Math.round(94 - s * 83)})`;
@@ -332,7 +350,7 @@ export function enhanceCountyGeoJSON(
           name: county.name,
           state: county.state,
           shortName: `${county.name}, ${county.state}`,
-          color: scoreToColor(normalizedScore),
+          color: scoreToColor(normalizedScore, techType),
           carbonIntensity: m ? Math.round(m.carbonIntensity) : county.carbonIntensity,
           lcoe: m ? Math.round(m.lcoe) : county.lcoe,
           renewablePercent: county.renewablePercent,
@@ -395,7 +413,7 @@ export function enhanceCountyGeoJSON(
           name: county.name,
           state: county.state,
           shortName: `${county.name}, ${county.state}`,
-          color: scoreToColor(normalizedScore),
+          color: scoreToColor(normalizedScore, techType),
           carbonIntensity: displayCarbon,
           lcoe: Math.round(lcoe),
           renewablePercent: county.renewablePercent,

@@ -61,8 +61,29 @@ export function LeftSidebar() {
 
   const timeSeries = useMemo(() => generateTimeSeries(), []);
 
-  // Current metrics from time series at selected hour
-  const currentData = timeSeries[timeHour] || timeSeries[14];
+  // 60fps continuous data interpolation for smooth sidebar metrics
+  const currentData = useMemo(() => {
+    const h0 = Math.floor(timeHour);
+    const h1 = (h0 + 1) % 24;
+    const frac = timeHour - h0;
+    const d0 = timeSeries[h0];
+    const d1 = timeSeries[h1] || timeSeries[0];
+    if (!d0 || !d1) return timeSeries[0];
+    
+    return {
+      hour: timeHour,
+      carbonIntensity: d0.carbonIntensity * (1 - frac) + d1.carbonIntensity * frac,
+      price: d0.price * (1 - frac) + d1.price * frac,
+      solar: d0.solar * (1 - frac) + d1.solar * frac,
+      wind: d0.wind * (1 - frac) + d1.wind * frac,
+      nuclear: d0.nuclear * (1 - frac) + d1.nuclear * frac,
+      hydro: d0.hydro * (1 - frac) + d1.hydro * frac,
+      gas: d0.gas * (1 - frac) + d1.gas * frac,
+      coal: d0.coal * (1 - frac) + d1.coal * frac,
+      load: d0.load * (1 - frac) + d1.load * frac,
+      netFlow: d0.netFlow * (1 - frac) + d1.netFlow * frac,
+    };
+  }, [timeSeries, timeHour]);
 
   // Forecast playback loop
   useEffect(() => {
@@ -301,24 +322,11 @@ function CarbonGauge({
     value < 350 ? "#f59e0b" :
     value < 500 ? "#ea580c" : "#ef4444";
 
-  // Gauge arc (0-600 range mapped to 0-180 degrees)
-  const angle = Math.min(180, (value / 600) * 180);
   const radius = 60;
   const cx = 70;
   const cy = 65;
 
-  const startAngle = Math.PI;
-  const endAngle = startAngle - (angle * Math.PI) / 180;
-  const x1 = cx + radius * Math.cos(startAngle);
-  const y1 = cy - radius * Math.sin(startAngle);
-  const x2 = cx + radius * Math.cos(endAngle);
-  const y2 = cy - radius * Math.sin(endAngle);
-  const largeArc = angle > 180 ? 1 : 0;
-
   const trackPath = `M ${cx - radius} ${cy} A ${radius} ${radius} 0 0 1 ${cx + radius} ${cy}`;
-  const valuePath = angle > 0
-    ? `M ${x1} ${y1} A ${radius} ${radius} 0 ${largeArc} 1 ${x2} ${y2}`
-    : "";
 
   return (
     <div className="flex items-start gap-4">
@@ -334,19 +342,17 @@ function CarbonGauge({
             strokeLinecap="round"
           />
           {/* Value */}
-          {valuePath && (
-            <motion.path
-              d={valuePath}
-              fill="none"
-              stroke={gaugeColor}
-              strokeWidth="10"
-              strokeLinecap="round"
-              initial={{ pathLength: 0 }}
-              animate={{ pathLength: 1 }}
-              transition={{ duration: 1, ease: "easeOut" }}
-              style={{ filter: `drop-shadow(0 0 8px ${gaugeColor}50)` }}
-            />
-          )}
+          <motion.path
+            d={trackPath}
+            fill="none"
+            stroke={gaugeColor}
+            strokeWidth="10"
+            strokeLinecap="round"
+            initial={{ pathLength: 0 }}
+            animate={{ pathLength: Math.min(1, value / 600) }}
+            transition={{ type: "spring", bounce: 0, duration: 1 }}
+            style={{ filter: `drop-shadow(0 0 8px ${gaugeColor}50)` }}
+          />
         </svg>
         <div className="absolute top-6 left-0 right-0 flex flex-col items-center justify-center">
           <span className="text-[28px] font-bold tabular-nums leading-none tracking-tight" style={{ color: gaugeColor }}>

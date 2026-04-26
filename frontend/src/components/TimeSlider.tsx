@@ -11,17 +11,27 @@ export function TimeSlider() {
   const intervalRef = useRef<number | null>(null);
 
   useEffect(() => {
-    if (isPlaying) {
-      intervalRef.current = window.setInterval(() => {
-        setTimeHour((timeHour + 1) % 24);
-      }, 800);
-    } else {
-      if (intervalRef.current) clearInterval(intervalRef.current);
-    }
-    return () => {
-      if (intervalRef.current) clearInterval(intervalRef.current);
+    let animationFrame: number;
+    let lastTime = performance.now();
+    
+    const animate = (time: number) => {
+      const delta = time - lastTime;
+      lastTime = time;
+      
+      const current = useLumenStore.getState().timeHour;
+      // 1 hour every 1.5 seconds -> speed = 1/1500 hour per ms
+      const newHour = (current + delta / 1500) % 24;
+      setTimeHour(newHour);
+      
+      animationFrame = requestAnimationFrame(animate);
     };
-  }, [isPlaying, timeHour, setTimeHour]);
+
+    if (isPlaying) {
+      lastTime = performance.now();
+      animationFrame = requestAnimationFrame(animate);
+    }
+    return () => cancelAnimationFrame(animationFrame);
+  }, [isPlaying, setTimeHour]);
 
   // Compute sidebar-aware offsets
   const leftOffset = leftSidebarOpen ? 360 : 0;
@@ -73,7 +83,7 @@ export function TimeSlider() {
       {/* Time display */}
       <div className="text-center min-w-[70px]">
         <p className="text-sm font-semibold text-white tabular-nums">
-          {timeHour.toString().padStart(2, "0")}:00
+          {Math.floor(timeHour).toString().padStart(2, "0")}:{Math.floor((timeHour % 1) * 60).toString().padStart(2, "0")}
         </p>
         <p className="text-[9px] text-gray-500">Apr 25, 2026</p>
       </div>
@@ -84,7 +94,8 @@ export function TimeSlider() {
           id="time-slider"
           type="range"
           min={0}
-          max={23}
+          max={23.99}
+          step={0.05}
           value={timeHour}
           onChange={(e) => setTimeHour(Number(e.target.value))}
         />
@@ -93,7 +104,7 @@ export function TimeSlider() {
             <span
               key={h}
               className={`text-[9px] font-medium tracking-wider ${
-                h === timeHour ? "text-white" : "text-gray-500"
+                Math.floor(timeHour) === h ? "text-white" : "text-gray-500"
               }`}
             >
               {h.toString().padStart(2, "0")}:00
