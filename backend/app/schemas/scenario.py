@@ -209,6 +209,81 @@ class SiteResponse(BaseModel):
     total_cells: int = Field(description="Total number of cells in dataset")
 
 
+class QueryRequest(BaseModel):
+    """Input body for natural-language filtering."""
+
+    query: str = Field(min_length=1, description="Natural language filter query")
+
+
+class QueryFilters(BaseModel):
+    """Normalized filters extracted from a natural-language query."""
+
+    technology: TechnologyType | None = Field(
+        default=None, description="Target technology, if specified"
+    )
+    region: str | None = Field(
+        default=None,
+        description="Named region, state, ISO, or free-text geographic constraint",
+    )
+    min_cf: float | None = Field(
+        default=None, ge=0, le=1, description="Minimum selected capacity factor"
+    )
+    min_lcoe: float | None = Field(
+        default=None, ge=0, description="Minimum LCOE in USD/MWh"
+    )
+    max_lcoe: float | None = Field(
+        default=None, ge=0, description="Maximum LCOE in USD/MWh"
+    )
+    min_carbon_intensity: float | None = Field(
+        default=None, ge=0, description="Minimum grid carbon intensity in gCO2/kWh"
+    )
+    max_carbon_intensity: float | None = Field(
+        default=None, ge=0, description="Maximum grid carbon intensity in gCO2/kWh"
+    )
+    min_price: float | None = Field(
+        default=None, ge=0, description="Minimum wholesale price in USD/MWh"
+    )
+    max_price: float | None = Field(
+        default=None, ge=0, description="Maximum wholesale price in USD/MWh"
+    )
+    min_renewable_percent: float | None = Field(
+        default=None, ge=0, le=100, description="Minimum renewable share percent"
+    )
+    max_transmission_km: float | None = Field(
+        default=None, ge=0, description="Maximum transmission distance in km"
+    )
+
+    def has_any_value(self) -> bool:
+        """Return True when at least one filter was extracted."""
+        return any(value is not None for value in self.model_dump().values())
+
+
+class QueryResponse(BaseModel):
+    """Natural-language query response with extracted filters and matches."""
+
+    parsed: bool = Field(description="Whether the query could be parsed")
+    message: str = Field(description="Friendly status or failure message")
+    filters: QueryFilters | None = Field(
+        default=None, description="Structured filters extracted from the query"
+    )
+    effective_technology: TechnologyType | None = Field(
+        default=None,
+        description="Technology used when scoring selected_cf/LCOE filters",
+    )
+    matched_cell_ids: list[str] = Field(
+        default_factory=list, description="Matched scored-cell identifiers"
+    )
+    matched_county_fips: list[str] = Field(
+        default_factory=list, description="Matched county FIPS identifiers"
+    )
+    matched_cell_count: int = Field(
+        default=0, description="Number of matched scored cells"
+    )
+    matched_county_count: int = Field(
+        default=0, description="Number of matched counties"
+    )
+
+
 class HealthResponse(BaseModel):
     """Simple health check response."""
 

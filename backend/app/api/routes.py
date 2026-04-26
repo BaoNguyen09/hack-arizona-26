@@ -19,11 +19,14 @@ from backend.app.schemas.scenario import (
     HeatmapResponse,
     JobStatusResponse,
     JobSubmitResponse,
+    QueryRequest,
+    QueryResponse,
     ScenarioRequest,
     SiteRequest,
     SiteResponse,
 )
 from backend.app.services.heatmap import build_heatmap_response
+from backend.app.services.query import run_query
 from backend.app.services.site import get_site_response
 
 router = APIRouter()
@@ -205,13 +208,10 @@ def job_status(job_id: str) -> JobStatusResponse:
         raise HTTPException(status_code=404, detail=str(e)) from e
 
 
-@router.post("/query")
-def query() -> dict:
-    """Natural language scenario query parser (stub for future implementation).
-
-    Will parse natural language queries into structured scenario parameters.
-    """
-    return {"status": "not_implemented", "message": "NL query parsing coming soon"}
+@router.post("/query", response_model=QueryResponse)
+def query(payload: QueryRequest) -> QueryResponse:
+    """Parse natural-language filters and return matching cells and counties."""
+    return run_query(payload.query)
 
 
 def _scenario_from_query(
