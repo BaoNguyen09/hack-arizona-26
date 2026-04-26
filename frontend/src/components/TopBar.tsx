@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { motion } from "framer-motion";
 import {
   Sun,
@@ -5,15 +6,14 @@ import {
   DollarSign,
   Leaf,
   Search,
-  Layers,
   Map,
   Grid3x3,
-  ArrowRightLeft,
   ChevronDown,
 } from "lucide-react";
 import { useLumenStore } from "../store/useLumenStore";
 
 export function TopBar() {
+  const [queryText, setQueryText] = useState("");
   const {
     techType,
     setTechType,
@@ -25,6 +25,10 @@ export function TopBar() {
     toggleZones,
     showHeatmap,
     toggleHeatmap,
+    runNaturalLanguageQuery,
+    clearQueryResults,
+    queryMessage,
+    queryPending,
   } = useLumenStore();
 
   return (
@@ -51,7 +55,6 @@ export function TopBar() {
 
       <div className="w-px h-6 bg-gray-700/50" />
 
-      {/* Tech Toggle */}
       <div className="flex items-center gap-1 bg-gray-800/60 rounded-lg p-0.5 border border-gray-700/40">
         <button
           id="tech-solar"
@@ -81,7 +84,6 @@ export function TopBar() {
 
       <div className="w-px h-6 bg-gray-700/50" />
 
-      {/* Carbon Price */}
       <div className="flex items-center gap-2">
         <Leaf className="w-3.5 h-3.5 text-gray-400" />
         <span className="text-[11px] text-gray-400 whitespace-nowrap">Carbon</span>
@@ -99,7 +101,6 @@ export function TopBar() {
         </span>
       </div>
 
-      {/* CAPEX */}
       <div className="flex items-center gap-2">
         <DollarSign className="w-3.5 h-3.5 text-gray-400" />
         <span className="text-[11px] text-gray-400 whitespace-nowrap">CAPEX</span>
@@ -120,7 +121,6 @@ export function TopBar() {
 
       <div className="w-px h-6 bg-gray-700/50" />
 
-      {/* Layer Toggles */}
       <div className="flex items-center gap-1">
         <LayerBtn
           active={showZones}
@@ -144,29 +144,48 @@ export function TopBar() {
 
       <div className="flex-1" />
 
-      {/* Query Bar */}
       <div className="relative max-w-xs w-full">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-500" />
         <input
           id="nl-query"
           type="text"
           placeholder="Ask Lumen anything..."
-          className="w-full pl-9 pr-3 py-1.5 rounded-lg bg-white/5 border border-white/10 text-xs text-gray-300 placeholder-gray-500 focus:outline-none focus:border-white/30 transition-all"
+          value={queryText}
+          onChange={(e) => setQueryText(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              void runNaturalLanguageQuery(queryText);
+            }
+            if (e.key === "Escape") {
+              setQueryText("");
+              clearQueryResults();
+            }
+          }}
+          className="w-full pl-9 pr-12 py-1.5 rounded-lg bg-white/5 border border-white/10 text-xs text-gray-300 placeholder-gray-500 focus:outline-none focus:border-white/30 transition-all"
         />
-        <kbd className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[9px] text-gray-500 bg-black/50 px-1.5 py-0.5 rounded border border-white/10">
-          ⌘K
-        </kbd>
+        <button
+          type="button"
+          onClick={() => void runNaturalLanguageQuery(queryText)}
+          className="absolute right-1.5 top-1/2 -translate-y-1/2 px-2 py-1 rounded-md text-[10px] border border-white/10 bg-black/50 text-gray-300 hover:bg-white/10 transition-all disabled:opacity-60"
+          disabled={queryPending}
+        >
+          {queryPending ? "..." : "Run"}
+        </button>
+        {queryMessage ? (
+          <div className="absolute top-full left-0 right-0 mt-1 rounded-md border border-white/10 bg-black/85 px-2 py-1.5 text-[10px] text-gray-300 shadow-lg">
+            {queryMessage}
+          </div>
+        ) : null}
       </div>
 
       <button className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 text-xs text-gray-300 hover:bg-white/10 transition-all">
-        🇺🇸 CONUS
+        CONUS
         <ChevronDown className="w-3 h-3 text-gray-500" />
       </button>
     </motion.header>
   );
 }
 
-// ── Layer toggle button ────────────────────────────────
 function LayerBtn({
   active,
   onClick,
