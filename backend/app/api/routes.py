@@ -214,6 +214,32 @@ def query(payload: QueryRequest) -> QueryResponse:
     return run_query(payload.query)
 
 
+@router.get("/query/suggest")
+def query_suggest() -> dict:
+    """Return suggested query examples for the frontend search bar."""
+    return {
+        "suggestions": [
+            "Top 10 solar counties in Texas",
+            "Wind in Iowa with CF above 40%",
+            "Cheapest solar in the Southwest",
+            "Low carbon in California",
+            "Best 20 counties for wind",
+            "LCOE below 40 $/MWh",
+            "Solar in ERCOT with carbon below 300",
+            "Most renewable counties in the Pacific Northwest",
+        ]
+    }
+
+
+@router.get("/counties/top")
+def counties_top(
+    technology: str = Query("solar", description="Technology: solar or wind"),
+    n: int = Query(10, ge=1, le=50, description="Number of top counties"),
+) -> QueryResponse:
+    """Get the top N counties by composite score for a given technology."""
+    return run_query(f"top {n} {technology}")
+
+
 def _scenario_from_query(
     technology: str,
     capacity_mw: float,

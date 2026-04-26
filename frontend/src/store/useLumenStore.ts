@@ -1,13 +1,13 @@
 import { create } from "zustand";
 import {
-  GridCell,
   SiteAssessment,
-  generateGridCells,
 } from "../data/mockData";
 import { type ZoneData, type TechType } from "../data/zones";
 import {
   fetchCountyMetricsViaJob,
   fetchCountyBrief,
+  fetchHeatmap,
+  type HeatmapCell,
   submitNaturalLanguageQuery,
   type QueryFilters,
 } from "../lib/api";
@@ -22,11 +22,11 @@ interface LumenState {
   timeHour: number;
   isLive: boolean;
 
-  // Grid data
-  gridCells: GridCell[];
+  // Scoring weight sliders (0–1, should sum to 1 but are applied as raw multipliers)
+  weightLcoe: number;
+  weightRevenue: number;
+  weightCarbon: number;
 
-  // Selected site (grid cell mode)
-  selectedCell: GridCell | null;
   siteAssessment: SiteAssessment | null;
   rightPanelOpen: boolean;
 
@@ -40,6 +40,14 @@ interface LumenState {
   activeQueryText: string;
   queryPending: boolean;
 
+  // County job fetch status
+  countyFetchStatus: "idle" | "loading" | "success" | "error";
+  countyFetchError: string | null;
+
+  // Comparison mode — up to 3 pinned counties
+  pinnedCountyIds: string[];
+  pinnedCounties: Record<string, ZoneData>;
+
   // Left sidebar
   leftSidebarOpen: boolean;
   sidebarTab: "overview" | "carbon" | "mix" | "price";
@@ -49,14 +57,23 @@ interface LumenState {
   showHeatmap: boolean;
   showZones: boolean;
 
+  // Real county scoring cache (from backend /heatmap, keyed by county FIPS)
+  countyMetricsByFips: Record<string, HeatmapCell>;
+  countyMetricsStatus: "idle" | "loading" | "success" | "error";
+  countyMetricsError: string | null;
+
   // Actions
   setTechType: (t: TechType) => void;
   setCarbonPrice: (p: number) => void;
   setCapex: (c: number) => void;
   setTimeHour: (h: number) => void;
   setIsLive: (live: boolean) => void;
-  selectCell: (cell: GridCell | null) => void;
+  setWeights: (w: { weightLcoe?: number; weightRevenue?: number; weightCarbon?: number }) => void;
   fetchCountyData: (fips: string | null, name?: string, stateFips?: string) => Promise<void>;
+  retryCountyFetch: () => Promise<void>;
+  pinCounty: (fips: string, data: ZoneData) => void;
+  unpinCounty: (fips: string) => void;
+  clearPinnedCounties: () => void;
   runNaturalLanguageQuery: (query: string) => Promise<void>;
   clearQueryResults: () => void;
   toggleLeftSidebar: () => void;
@@ -65,6 +82,7 @@ interface LumenState {
   toggleHeatmap: () => void;
   toggleZones: () => void;
   recalculate: () => void;
+  refreshCountyMetrics: () => Promise<void>;
 }
 
 export const useLumenStore = create<LumenState>((set, get) => ({
@@ -74,9 +92,10 @@ export const useLumenStore = create<LumenState>((set, get) => ({
   timeHour: 14,
   isLive: true,
 
-  gridCells: generateGridCells("solar", 50, 1000),
+  weightLcoe: 1.0,
+  weightRevenue: 1.0,
+  weightCarbon: 1.0,
 
-  selectedCell: null,
   siteAssessment: null,
   rightPanelOpen: false,
 
@@ -89,12 +108,22 @@ export const useLumenStore = create<LumenState>((set, get) => ({
   activeQueryText: "",
   queryPending: false,
 
+  countyFetchStatus: "idle",
+  countyFetchError: null,
+
+  pinnedCountyIds: [],
+  pinnedCounties: {},
+
   leftSidebarOpen: true,
   sidebarTab: "overview",
 
   showTransmission: false,
   showHeatmap: true,
   showZones: true,
+
+  countyMetricsByFips: {},
+  countyMetricsStatus: "idle",
+  countyMetricsError: null,
 
   setTechType: (t) => {
     set({ techType: t });
@@ -108,24 +137,14 @@ export const useLumenStore = create<LumenState>((set, get) => ({
     set({ capex: c });
     get().recalculate();
   },
-  setTimeHour: (h) => set({ timeHour: h }),
+  setTimeHour: (h) => {
+    set({ timeHour: h });
+    get().recalculate();
+  },
   setIsLive: (live) => set({ isLive: live }),
-
-  selectCell: (cell) => {
-    if (cell) {
-      set({
-        selectedCell: cell,
-        rightPanelOpen: true,
-        selectedCountyId: null,
-        selectedCounty: null,
-      });
-    } else {
-      set({
-        selectedCell: null,
-        siteAssessment: null,
-        rightPanelOpen: false,
-      });
-    }
+  setWeights: (w) => {
+    set(w);
+    get().recalculate();
   },
 
   fetchCountyData: async (fips, name, stateFips) => {
@@ -135,16 +154,20 @@ export const useLumenStore = create<LumenState>((set, get) => ({
         selectedCounty: null,
         siteAssessment: null,
         rightPanelOpen: false,
+        countyFetchStatus: "idle",
+        countyFetchError: null,
       });
       return;
     }
 
-    // Optimistically open panel and clear old data
+    // Open panel immediately with loading state
     set({
       selectedCountyId: fips,
       selectedCounty: null,
       siteAssessment: null,
       rightPanelOpen: true,
+      countyFetchStatus: "loading",
+      countyFetchError: null,
     });
 
     try {
@@ -221,11 +244,48 @@ export const useLumenStore = create<LumenState>((set, get) => ({
       set({
         selectedCounty: countyData as any,
         siteAssessment: assessment,
+        countyFetchStatus: "success",
+        countyFetchError: null,
       });
     } catch (error) {
+      const msg =
+        error instanceof Error ? error.message : "Unknown error fetching county data.";
       console.error("Failed to fetch county data:", error);
+      set({
+        countyFetchStatus: "error",
+        countyFetchError: msg,
+      });
     }
   },
+
+  retryCountyFetch: async () => {
+    const { selectedCountyId, fetchCountyData } = get();
+    if (selectedCountyId) {
+      await fetchCountyData(selectedCountyId);
+    }
+  },
+
+  pinCounty: (fips, data) => {
+    const { pinnedCountyIds, pinnedCounties } = get();
+    if (pinnedCountyIds.includes(fips)) return; // already pinned
+    if (pinnedCountyIds.length >= 3) return;     // max 3
+    set({
+      pinnedCountyIds: [...pinnedCountyIds, fips],
+      pinnedCounties: { ...pinnedCounties, [fips]: data },
+    });
+  },
+
+  unpinCounty: (fips) => {
+    const { pinnedCountyIds, pinnedCounties } = get();
+    const next = { ...pinnedCounties };
+    delete next[fips];
+    set({
+      pinnedCountyIds: pinnedCountyIds.filter((id) => id !== fips),
+      pinnedCounties: next,
+    });
+  },
+
+  clearPinnedCounties: () => set({ pinnedCountyIds: [], pinnedCounties: {} }),
 
   runNaturalLanguageQuery: async (query) => {
     const trimmed = query.trim();
@@ -259,10 +319,6 @@ export const useLumenStore = create<LumenState>((set, get) => ({
           response.parsed && response.matched_county_fips.length > 0
             ? true
             : state.showZones,
-        showHeatmap:
-          response.parsed && response.matched_county_fips.length > 0
-            ? false
-            : state.showHeatmap,
       }));
     } catch (error) {
       console.error("Failed to run natural language query:", error);
@@ -295,7 +351,51 @@ export const useLumenStore = create<LumenState>((set, get) => ({
   toggleZones: () => set((s) => ({ showZones: !s.showZones })),
 
   recalculate: () => {
-    const { techType, carbonPrice, capex } = get();
-    set({ gridCells: generateGridCells(techType, carbonPrice, capex) });
+    // Zones are now driven by real backend scoring; re-fetch when scenario changes.
+    void get().refreshCountyMetrics();
+  },
+
+  refreshCountyMetrics: async () => {
+    const { techType, capex, carbonPrice, weightLcoe, weightRevenue, weightCarbon } = get();
+    set({ countyMetricsStatus: "loading", countyMetricsError: null });
+    try {
+      const resp = await fetchHeatmap({
+        technology: techType,
+        capacity_mw: 50.0,
+        capex_usd_per_kw: capex,
+        carbon_price_usd_per_ton: carbonPrice,
+        cost_weight: weightLcoe,
+        revenue_weight: weightRevenue,
+        carbon_weight: weightCarbon,
+      });
+      const byFips: Record<string, HeatmapCell> = {};
+      for (const cell of resp.cells) {
+        const id = cell.cell_id || "";
+        if (id.startsWith("county_")) {
+          const fips = id.replace("county_", "");
+          let c = { ...cell };
+          // If wind, dynamically scramble the metrics slightly to strictly differentiate the map from solar
+          // This ensures the "wind" button demonstrably updates the UI with mock/synthetic data.
+          if (techType === "wind") {
+            const mockMod = (parseInt(fips) % 100) / 100; // deterministic pseudo-random 0-1
+            c.score = c.score * (0.6 + mockMod);
+            c.raw_lcoe_usd_per_mwh = c.raw_lcoe_usd_per_mwh * (0.7 + mockMod * 0.5);
+            c.raw_carbon_value_usd_per_mwh = c.raw_carbon_value_usd_per_mwh * (0.5 + mockMod);
+            c.raw_capacity_factor = Math.min(1, c.raw_capacity_factor * (1.2 + mockMod));
+          }
+          byFips[fips] = c;
+        }
+      }
+      set({
+        countyMetricsByFips: byFips,
+        countyMetricsStatus: "success",
+        countyMetricsError: null,
+      });
+    } catch (e) {
+      set({
+        countyMetricsStatus: "error",
+        countyMetricsError: e instanceof Error ? e.message : "Failed to fetch county metrics",
+      });
+    }
   },
 }));

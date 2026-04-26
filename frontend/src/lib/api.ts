@@ -1,5 +1,16 @@
 export const API_BASE_URL = "http://localhost:8000";
 
+/** Normalize fetch errors into user-readable strings. */
+function normalizeApiError(err: unknown, endpoint: string): Error {
+  if (err instanceof TypeError && err.message.toLowerCase().includes("fetch")) {
+    return new Error(
+      `Backend unreachable — is the API server running at ${API_BASE_URL}? (${endpoint})`
+    );
+  }
+  if (err instanceof Error) return err;
+  return new Error(`Unexpected error calling ${endpoint}`);
+}
+
 export interface QueryFilters {
   technology: "solar" | "wind" | null;
   region: string | null;
@@ -34,18 +45,20 @@ export async function fetchCountyMetrics(
     carbon_price_usd_per_ton: number;
   }
 ) {
-  const query = new URLSearchParams({
-    technology: params.technology,
-    capacity_mw: params.capacity_mw.toString(),
-    capex_usd_per_kw: params.capex_usd_per_kw.toString(),
-    carbon_price_usd_per_ton: params.carbon_price_usd_per_ton.toString(),
-  });
-  
-  const response = await fetch(`${API_BASE_URL}/county/${fips}?${query.toString()}`);
-  if (!response.ok) {
-    throw new Error(`API error: ${response.statusText}`);
+  const endpoint = `/county/${fips}`;
+  try {
+    const query = new URLSearchParams({
+      technology: params.technology,
+      capacity_mw: params.capacity_mw.toString(),
+      capex_usd_per_kw: params.capex_usd_per_kw.toString(),
+      carbon_price_usd_per_ton: params.carbon_price_usd_per_ton.toString(),
+    });
+    const response = await fetch(`${API_BASE_URL}${endpoint}?${query.toString()}`);
+    if (!response.ok) throw new Error(`API error ${response.status}: ${response.statusText}`);
+    return response.json();
+  } catch (err) {
+    throw normalizeApiError(err, endpoint);
   }
-  return response.json();
 }
 
 export async function submitCountyJob(
@@ -57,33 +70,37 @@ export async function submitCountyJob(
     carbon_price_usd_per_ton: number;
   }
 ) {
-  const response = await fetch(`${API_BASE_URL}/jobs/county`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      fips_code: fips,
-      scenario: {
-        technology: params.technology,
-        capacity_mw: params.capacity_mw,
-        capex_usd_per_kw: params.capex_usd_per_kw,
-        carbon_price_usd_per_ton: params.carbon_price_usd_per_ton,
-      },
-    }),
-  });
-  if (!response.ok) {
-    throw new Error(`API error: ${response.statusText}`);
+  const endpoint = "/jobs/county";
+  try {
+    const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        fips_code: fips,
+        scenario: {
+          technology: params.technology,
+          capacity_mw: params.capacity_mw,
+          capex_usd_per_kw: params.capex_usd_per_kw,
+          carbon_price_usd_per_ton: params.carbon_price_usd_per_ton,
+        },
+      }),
+    });
+    if (!response.ok) throw new Error(`API error ${response.status}: ${response.statusText}`);
+    return response.json();
+  } catch (err) {
+    throw normalizeApiError(err, endpoint);
   }
-  return response.json();
 }
 
 export async function fetchJobStatus(jobId: string) {
-  const response = await fetch(`${API_BASE_URL}/jobs/${jobId}`);
-  if (!response.ok) {
-    throw new Error(`API error: ${response.statusText}`);
+  const endpoint = `/jobs/${jobId}`;
+  try {
+    const response = await fetch(`${API_BASE_URL}${endpoint}`);
+    if (!response.ok) throw new Error(`API error ${response.status}: ${response.statusText}`);
+    return response.json();
+  } catch (err) {
+    throw normalizeApiError(err, endpoint);
   }
-  return response.json();
 }
 
 export async function fetchCountyMetricsViaJob(
@@ -109,30 +126,89 @@ export async function fetchCountyMetricsViaJob(
   throw new Error("County job timed out");
 }
 
-export async function fetchCountyBrief(siteMetrics: any, scenario: any) {
-  const response = await fetch(`${API_BASE_URL}/brief`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ site: siteMetrics, scenario }),
-  });
-  if (!response.ok) {
-    throw new Error(`API error: ${response.statusText}`);
+export async function fetchCountyBrief(siteMetrics: unknown, scenario: unknown) {
+  const endpoint = "/brief";
+  try {
+    const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ site: siteMetrics, scenario }),
+    });
+    if (!response.ok) throw new Error(`API error ${response.status}: ${response.statusText}`);
+    return response.json();
+  } catch (err) {
+    throw normalizeApiError(err, endpoint);
   }
-  return response.json();
 }
 
 export async function submitNaturalLanguageQuery(query: string): Promise<QueryResponse> {
-  const response = await fetch(`${API_BASE_URL}/query`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ query }),
-  });
-  if (!response.ok) {
-    throw new Error(`API error: ${response.statusText}`);
+  const endpoint = "/query";
+  try {
+    const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ query }),
+    });
+    if (!response.ok) throw new Error(`API error ${response.status}: ${response.statusText}`);
+    return response.json();
+  } catch (err) {
+    throw normalizeApiError(err, endpoint);
   }
-  return response.json();
+}
+
+export interface HeatmapCell {
+  cell_id: string;
+  lat: number;
+  lon: number;
+  score: number;
+  raw_capacity_factor: number;
+  raw_lcoe_usd_per_mwh: number;
+  raw_revenue_usd_per_mwh: number;
+  raw_carbon_value_usd_per_mwh: number;
+}
+
+export interface HeatmapResponse {
+  technology: "solar" | "wind";
+  score_min: number;
+  score_max: number;
+  score_unit: string;
+  cell_count: number;
+  cells: HeatmapCell[];
+}
+
+export async function fetchHeatmap(payload: {
+  technology: "solar" | "wind";
+  capacity_mw: number;
+  capex_usd_per_kw: number;
+  opex_usd_per_kw_year?: number;
+  discount_rate?: number;
+  project_lifetime_years?: number;
+  carbon_price_usd_per_ton: number;
+  cost_weight: number;
+  revenue_weight: number;
+  carbon_weight: number;
+}): Promise<HeatmapResponse> {
+  const endpoint = "/heatmap";
+  try {
+    const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        technology: payload.technology,
+        capacity_mw: payload.capacity_mw,
+        capex_usd_per_kw: payload.capex_usd_per_kw,
+        opex_usd_per_kw_year: payload.opex_usd_per_kw_year ?? 35.0,
+        discount_rate: payload.discount_rate ?? 0.06,
+        project_lifetime_years: payload.project_lifetime_years ?? 25,
+        carbon_price_usd_per_ton: payload.carbon_price_usd_per_ton,
+        cost_weight: payload.cost_weight,
+        revenue_weight: payload.revenue_weight,
+        carbon_weight: payload.carbon_weight,
+      }),
+    });
+    if (!response.ok) throw new Error(`API error ${response.status}: ${response.statusText}`);
+    return response.json();
+  } catch (err) {
+    throw normalizeApiError(err, endpoint);
+  }
 }

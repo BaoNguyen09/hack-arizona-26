@@ -30,10 +30,28 @@ export function carbonToColor(ci: number): string {
   return "#450a0a"; // Extremely Dark Red/Brown
 }
 
-// ── Cost Score → Color (green=cheap, red=expensive) ──────
-// normalizedScore: 0 = cheapest (green), 1 = most expensive (red)
-export function scoreToColor(t: number): string {
+// ── Cost Score → Color (green=cheap, red=expensive for solar; cyan=cheap, purple=expensive for wind) ──────
+// normalizedScore: 0 = cheapest, 1 = most expensive
+export function scoreToColor(t: number, techType: TechType = "solar"): string {
   const clamped = Math.max(0, Math.min(1, t));
+  
+  if (techType === "wind") {
+    if (clamped < 0.33) {
+      const s = clamped / 0.33;
+      // Cyan (34, 211, 238) to Blue (59, 130, 246)
+      return `rgb(${Math.round(34 + s * 25)},${Math.round(211 - s * 81)},${Math.round(238 + s * 8)})`;
+    } else if (clamped < 0.66) {
+      const s = (clamped - 0.33) / 0.33;
+      // Blue (59, 130, 246) to Indigo (99, 102, 241)
+      return `rgb(${Math.round(59 + s * 40)},${Math.round(130 - s * 28)},${Math.round(246 - s * 5)})`;
+    } else {
+      const s = (clamped - 0.66) / 0.34;
+      // Indigo (99, 102, 241) to Purple (147, 51, 234)
+      return `rgb(${Math.round(99 + s * 48)},${Math.round(102 - s * 51)},${Math.round(241 - s * 7)})`;
+    }
+  }
+
+  // Solar (default)
   if (clamped < 0.33) {
     const s = clamped / 0.33;
     return `rgb(${Math.round(34 + s * 211)},${Math.round(197 - s * 39)},${Math.round(94 - s * 83)})`;
@@ -64,21 +82,79 @@ export function computeLCOE(cf: number, capex: number, techType: TechType = "sol
 }
 
 /**
+ * Diurnal multipliers for price and carbon intensity at a given hour of day.
+ *
+ * Solar economics:
+ *  - Midday (10–15h): high generation → lower marginal prices, cleaner grid
+ *  - Night (20–06h): zero generation → fossil ramps up, higher prices
+ *
+ * Wind economics:
+ *  - Overnight/early morning: slightly stronger winds → higher CF
+ *  - Midday: lower wind, higher load (prices up, carbon up)
+ */
+export function diurnalFactors(
+  hour: number,
+  techType: TechType,
+): { priceMultiplier: number; carbonMultiplier: number } {
+  const h = ((hour % 24) + 24) % 24;
+
+  if (techType === "solar") {
+    // Solar generation curve: peaks ~13h, zero at night
+    const solarGen = Math.max(0, Math.sin(((h - 6) * Math.PI) / 12));
+    // High generation → prices fall (negative correlation), grid cleaner
+    const priceMultiplier = 1 + 0.35 * (1 - solarGen) - 0.15 * solarGen;
+    const carbonMultiplier = 1 + 0.3 * (1 - solarGen);
+    return { priceMultiplier, carbonMultiplier };
+  } else {
+    // Wind is stronger overnight (stable atmosphere), weaker midday
+    const windBoost = 0.5 + 0.5 * Math.cos(((h - 14) * Math.PI) / 12);
+    // Wind peak lowers prices slightly; midday load raises them
+    const loadPressure = 0.4 + 0.3 * Math.sin(((h - 8) * Math.PI) / 10);
+    const priceMultiplier = 1 + 0.2 * loadPressure - 0.12 * windBoost;
+    const carbonMultiplier = 1 + 0.2 * loadPressure - 0.1 * windBoost;
+    return { priceMultiplier, carbonMultiplier };
+  }
+}
+
+/**
  * Composite cost score (lower = better site).
- *   Score = LCOE - Revenue - CarbonValue
- * Matches the backend formula exactly.
+ *   Score = wLcoe*LCOE - wRevenue*Revenue - wCarbon*CarbonValue
+ * Weights default to 1 (matching the original unweighted formula).
+ * Optionally modulated by hour-of-day via diurnalFactors.
  */
 export function computeCompositeCostScore(
   county: ZoneData,
   techType: TechType,
   capex: number,
   carbonPrice: number,
+  timeHour?: number,
+  weightLcoe = 1,
+  weightRevenue = 1,
+  weightCarbon = 1,
 ): number {
   const cf = techType === "solar" ? county.solarCF : county.windCF;
   const lcoe = computeLCOE(cf, capex, techType);
-  const revenue = county.price; // $/MWh (wholesale)
-  const carbonValue = (county.carbonIntensity / 1000) * carbonPrice; // tons/MWh * $/ton
-  return lcoe - revenue - carbonValue;
+
+  let revenue = county.price; // $/MWh (wholesale)
+  let carbonIntensity = county.carbonIntensity;
+
+  if (timeHour !== undefined) {
+    const { priceMultiplier, carbonMultiplier } = diurnalFactors(timeHour, techType);
+    revenue = county.price * priceMultiplier;
+    carbonIntensity = county.carbonIntensity * carbonMultiplier;
+  }
+
+  const carbonValue = (carbonIntensity / 1000) * carbonPrice; // tons/MWh * $/ton
+  return weightLcoe * lcoe - weightRevenue * revenue - weightCarbon * carbonValue;
+}
+
+/** Percentile of an array (0–1 p value). */
+function percentile(sorted: number[], p: number): number {
+  if (sorted.length === 0) return 0;
+  const idx = p * (sorted.length - 1);
+  const lo = Math.floor(idx);
+  const hi = Math.ceil(idx);
+  return sorted[lo] + (sorted[hi] - sorted[lo]) * (idx - lo);
 }
 
 // ── FIPS to State Abbreviation Map ─────────────────────
@@ -175,12 +251,27 @@ export interface EnhanceOptions {
   capex?: number;
   carbonPrice?: number;
   colorMode?: "cost" | "carbon";
+  timeHour?: number;
+  weightLcoe?: number;
+  weightRevenue?: number;
+  weightCarbon?: number;
+  countyMetricsByFips?: Record<
+    string,
+    {
+      score: number;
+      raw_capacity_factor: number;
+      raw_lcoe_usd_per_mwh: number;
+      raw_revenue_usd_per_mwh: number;
+      raw_carbon_value_usd_per_mwh: number;
+    }
+  >;
 }
 
 /**
  * Enhance a raw US counties GeoJSON with:
- * - Composite cost scores based on current scenario (technology, capex, carbon price)
- * - Color derived from the scenario-aware composite score
+ * - Composite cost scores based on current scenario (technology, capex, carbon price, hour)
+ * - Color derived from a percentile-clipped (p5–p95) normalized score so outlier states
+ *   don't flatten the choropleth across the rest of the map.
  * - Tooltip-ready properties (CF, LCOE, carbon, price)
  */
 export function enhanceCountyGeoJSON(
@@ -192,7 +283,86 @@ export function enhanceCountyGeoJSON(
     capex = 1200,
     carbonPrice = 50,
     colorMode = "cost",
+    timeHour,
+    weightLcoe = 1,
+    weightRevenue = 1,
+    weightCarbon = 1,
+    countyMetricsByFips,
   } = options;
+
+  // If we have real backend-scored county metrics, prefer them for cost coloring.
+  if (colorMode === "cost" && countyMetricsByFips) {
+    const metrics: Array<{
+      fips: string;
+      score: number;
+      cf: number;
+      lcoe: number;
+      price: number;
+      carbonIntensity: number;
+    }> = [];
+
+    for (const f of geojson.features) {
+      const fips = (f.id as string) || f.properties?.id || "00000";
+      const m = countyMetricsByFips[fips];
+      if (!m) continue;
+
+      const price = Number(m.raw_revenue_usd_per_mwh);
+      const carbonValue = Number(m.raw_carbon_value_usd_per_mwh);
+      const carbonIntensity =
+        carbonPrice > 0 ? Math.max(0, (carbonValue * 1000) / carbonPrice) : 0;
+
+      metrics.push({
+        fips,
+        score: Number(m.score),
+        cf: Number(m.raw_capacity_factor),
+        lcoe: Number(m.raw_lcoe_usd_per_mwh),
+        price,
+        carbonIntensity,
+      });
+    }
+
+    const scores = metrics.map((m) => m.score).sort((a, b) => a - b);
+    const p5 = percentile(scores, 0.05);
+    const p95 = percentile(scores, 0.95);
+    const range = p95 - p5 || 1;
+
+    const byFips: Record<string, (typeof metrics)[number]> = {};
+    for (const m of metrics) byFips[m.fips] = m;
+
+    const features = geojson.features.map((f) => {
+      const fips = (f.id as string) || f.properties?.id || "00000";
+      const name = f.properties?.NAME || f.properties?.name || "Unknown County";
+      const stateFips = f.properties?.STATE || fips.substring(0, 2);
+      const county = getCounty(fips, name, stateFips);
+
+      const m = byFips[fips];
+      const score = m ? m.score : 0;
+      const normalizedScore = m
+        ? Math.max(0, Math.min(1, (score - p5) / range))
+        : 0;
+
+      return {
+        ...f,
+        id: fips,
+        properties: {
+          ...f.properties,
+          id: county.id,
+          name: county.name,
+          state: county.state,
+          shortName: `${county.name}, ${county.state}`,
+          color: scoreToColor(normalizedScore, techType),
+          carbonIntensity: m ? Math.round(m.carbonIntensity) : county.carbonIntensity,
+          lcoe: m ? Math.round(m.lcoe) : county.lcoe,
+          renewablePercent: county.renewablePercent,
+          price: m ? Math.round(m.price) : county.price,
+          capacityFactor: m ? Math.round(m.cf * 1000) / 1000 : Math.round((techType === "solar" ? county.solarCF : county.windCF) * 1000) / 1000,
+          costScore: m ? Math.round(m.score * 10) / 10 : 0,
+        },
+      };
+    });
+
+    return { ...geojson, features };
+  }
 
   // First pass: compute raw scores for all counties to normalize
   const counties: ZoneData[] = [];
@@ -207,19 +377,32 @@ export function enhanceCountyGeoJSON(
     fipsArr.push(fips);
   }
 
-  let scores: number[];
   if (colorMode === "cost") {
-    scores = counties.map(c => computeCompositeCostScore(c, techType, capex, carbonPrice));
-    const minScore = Math.min(...scores);
-    const maxScore = Math.max(...scores);
-    const range = maxScore - minScore || 1;
+    const scores = counties.map(c =>
+      computeCompositeCostScore(c, techType, capex, carbonPrice, timeHour, weightLcoe, weightRevenue, weightCarbon)
+    );
+
+    // Percentile-clipped normalization (p5–p95) prevents outliers from flattening the palette
+    const sorted = [...scores].sort((a, b) => a - b);
+    const p5 = percentile(sorted, 0.05);
+    const p95 = percentile(sorted, 0.95);
+    const range = p95 - p5 || 1;
 
     const features = geojson.features.map((f, i) => {
       const county = counties[i];
       const score = scores[i];
-      const normalizedScore = (score - minScore) / range;
+      const normalizedScore = Math.max(0, Math.min(1, (score - p5) / range));
       const cf = techType === "solar" ? county.solarCF : county.windCF;
       const lcoe = computeLCOE(cf, capex, techType);
+
+      // Apply diurnal price modulation to displayed price in tooltip
+      let displayPrice = county.price;
+      let displayCarbon = county.carbonIntensity;
+      if (timeHour !== undefined) {
+        const { priceMultiplier, carbonMultiplier } = diurnalFactors(timeHour, techType);
+        displayPrice = Math.round(county.price * priceMultiplier);
+        displayCarbon = Math.round(county.carbonIntensity * carbonMultiplier);
+      }
 
       return {
         ...f,
@@ -230,11 +413,11 @@ export function enhanceCountyGeoJSON(
           name: county.name,
           state: county.state,
           shortName: `${county.name}, ${county.state}`,
-          color: scoreToColor(normalizedScore),
-          carbonIntensity: county.carbonIntensity,
+          color: scoreToColor(normalizedScore, techType),
+          carbonIntensity: displayCarbon,
           lcoe: Math.round(lcoe),
           renewablePercent: county.renewablePercent,
-          price: county.price,
+          price: displayPrice,
           capacityFactor: Math.round(cf * 1000) / 1000,
           costScore: Math.round(score * 10) / 10,
         },
