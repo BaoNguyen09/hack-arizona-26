@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from backend.app.core.config import settings
 from backend.app.jobs.artifacts import artifact_store, stable_payload_hash
 from backend.app.jobs.runner import job_runner
 from backend.app.jobs.store import job_status_store
@@ -38,14 +39,19 @@ def county_artifact_key(fips_code: str, scenario: ScenarioRequest) -> str:
 
 def brief_artifact_key(site: dict[str, Any], scenario: dict[str, Any]) -> str:
     """Build a cache key for a brief request."""
+    llm_model = model_registry.get("llm_brief")
+    template_model = model_registry.get("template_brief")
+    brief_strategy = (
+        f"{settings.gemini_model}:{llm_model.version}"
+        if getattr(llm_model, "configured", False)
+        else template_model.model_id
+    )
     return stable_payload_hash(
         {
             "kind": "site_brief",
             "site": site,
             "scenario": scenario,
-            "model_versions": {
-                "template_brief": model_registry.get("template_brief").version
-            },
+            "brief_strategy": brief_strategy,
         }
     )
 
@@ -128,8 +134,17 @@ def generate_brief(site: dict[str, Any], scenario: dict[str, Any]) -> BriefRespo
         response.cached = True
         return response
 
-    model = model_registry.get("template_brief")
-    response = model.run({"site": site, "scenario": scenario})
+    llm_model = model_registry.get("llm_brief")
+    template_model = model_registry.get("template_brief")
+    model = llm_model if getattr(llm_model, "configured", False) else template_model
+    used_model = model
+    try:
+        response = model.run({"site": site, "scenario": scenario})
+    except Exception:
+        if model is template_model:
+            raise
+        used_model = template_model
+        response = template_model.run({"site": site, "scenario": scenario})
     if not isinstance(response, BriefResponse):
         raise TypeError("Brief model returned an unexpected response.")
     artifact_store.save(
@@ -139,8 +154,11 @@ def generate_brief(site: dict[str, Any], scenario: dict[str, Any]) -> BriefRespo
         {
             "scenario": scenario,
             "model_versions": {
-                "template_brief": model_registry.get("template_brief").version
+                "llm_brief": llm_model.version,
+                "template_brief": template_model.version,
             },
+            "gemini_model": settings.gemini_model,
+            "used_model": used_model.model_id,
         },
     )
     return response
