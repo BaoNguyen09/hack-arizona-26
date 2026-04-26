@@ -348,11 +348,11 @@ function CarbonGauge({
             />
           )}
         </svg>
-        <div className="absolute inset-0 flex flex-col items-center justify-end pb-1.5">
-          <span className="text-[26px] font-bold tabular-nums leading-none tracking-tight" style={{ color: gaugeColor }}>
+        <div className="absolute top-6 left-0 right-0 flex flex-col items-center justify-center">
+          <span className="text-[28px] font-bold tabular-nums leading-none tracking-tight" style={{ color: gaugeColor }}>
             <AnimatedNumber value={value} decimals={0} />
           </span>
-          <p className="text-[9px] text-gray-500 mt-0.5">gCO₂eq/kWh</p>
+          <p className="text-[9px] text-gray-500 mt-1 uppercase tracking-wider font-medium">gCO₂eq/kWh</p>
         </div>
       </div>
 
