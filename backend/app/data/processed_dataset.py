@@ -8,12 +8,20 @@ DATASET_COLUMNS = [
     "cell_id",
     "lat",
     "lon",
-    "region",
+    "state_code",
+    "state_name",
+    "electricity_maps_zone_id",
+    "month",
     "solar_cf",
     "wind_cf",
-    "avg_price_per_mwh",
-    "carbon_intensity_g_per_kwh",
-    "nearest_transmission_km",
+    "avg_electricity_cost_cents_per_kwh",
+    "pct_solar_state",
+    "pct_wind_state",
+    "pct_hydro_state",
+    "pct_fossil_state",
+    "carbon_g_per_kwh_zone",
+    "renewable_pct_zone",
+    "carbon_free_pct_zone",
 ]
 DEFAULT_DATASET_PATH = Path("data/processed/lumen_cells.csv")
 
@@ -23,12 +31,20 @@ class ProcessedCellRecord:
     cell_id: str
     lat: float
     lon: float
-    region: str
+    state_code: str
+    state_name: str
+    electricity_maps_zone_id: str
+    month: str
     solar_cf: float
     wind_cf: float
-    avg_price_per_mwh: float
-    carbon_intensity_g_per_kwh: float
-    nearest_transmission_km: float
+    avg_electricity_cost_cents_per_kwh: float
+    pct_solar_state: float
+    pct_wind_state: float
+    pct_hydro_state: float
+    pct_fossil_state: float
+    carbon_g_per_kwh_zone: float
+    renewable_pct_zone: float
+    carbon_free_pct_zone: float
 
 
 def _parse_row(row: dict[str, str]) -> ProcessedCellRecord:
@@ -40,12 +56,20 @@ def _parse_row(row: dict[str, str]) -> ProcessedCellRecord:
         cell_id=row["cell_id"],
         lat=float(row["lat"]),
         lon=float(row["lon"]),
-        region=row["region"],
+        state_code=row["state_code"],
+        state_name=row["state_name"],
+        electricity_maps_zone_id=row["electricity_maps_zone_id"],
+        month=row["month"],
         solar_cf=float(row["solar_cf"]),
         wind_cf=float(row["wind_cf"]),
-        avg_price_per_mwh=float(row["avg_price_per_mwh"]),
-        carbon_intensity_g_per_kwh=float(row["carbon_intensity_g_per_kwh"]),
-        nearest_transmission_km=float(row["nearest_transmission_km"]),
+        avg_electricity_cost_cents_per_kwh=float(row["avg_electricity_cost_cents_per_kwh"]),
+        pct_solar_state=float(row["pct_solar_state"]),
+        pct_wind_state=float(row["pct_wind_state"]),
+        pct_hydro_state=float(row["pct_hydro_state"]),
+        pct_fossil_state=float(row["pct_fossil_state"]),
+        carbon_g_per_kwh_zone=float(row["carbon_g_per_kwh_zone"]),
+        renewable_pct_zone=float(row["renewable_pct_zone"]),
+        carbon_free_pct_zone=float(row["carbon_free_pct_zone"]),
     )
 
 
