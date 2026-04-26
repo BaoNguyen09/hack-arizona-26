@@ -310,9 +310,9 @@ function CarbonGauge({
   const startAngle = Math.PI;
   const endAngle = startAngle - (angle * Math.PI) / 180;
   const x1 = cx + radius * Math.cos(startAngle);
-  const y1 = cy + radius * Math.sin(startAngle);
+  const y1 = cy - radius * Math.sin(startAngle);
   const x2 = cx + radius * Math.cos(endAngle);
-  const y2 = cy + radius * Math.sin(endAngle);
+  const y2 = cy - radius * Math.sin(endAngle);
   const largeArc = angle > 180 ? 1 : 0;
 
   const trackPath = `M ${cx - radius} ${cy} A ${radius} ${radius} 0 0 1 ${cx + radius} ${cy}`;

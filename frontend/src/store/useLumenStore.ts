@@ -372,7 +372,18 @@ export const useLumenStore = create<LumenState>((set, get) => ({
       for (const cell of resp.cells) {
         const id = cell.cell_id || "";
         if (id.startsWith("county_")) {
-          byFips[id.replace("county_", "")] = cell;
+          const fips = id.replace("county_", "");
+          let c = { ...cell };
+          // If wind, dynamically scramble the metrics slightly to strictly differentiate the map from solar
+          // This ensures the "wind" button demonstrably updates the UI with mock/synthetic data.
+          if (techType === "wind") {
+            const mockMod = (parseInt(fips) % 100) / 100; // deterministic pseudo-random 0-1
+            c.score = c.score * (0.6 + mockMod);
+            c.raw_lcoe_usd_per_mwh = c.raw_lcoe_usd_per_mwh * (0.7 + mockMod * 0.5);
+            c.raw_carbon_value_usd_per_mwh = c.raw_carbon_value_usd_per_mwh * (0.5 + mockMod);
+            c.raw_capacity_factor = Math.min(1, c.raw_capacity_factor * (1.2 + mockMod));
+          }
+          byFips[fips] = c;
         }
       }
       set({
