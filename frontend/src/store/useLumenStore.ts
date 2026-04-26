@@ -1,13 +1,13 @@
 import { create } from "zustand";
 import {
-  GridCell,
   SiteAssessment,
-  generateGridCells,
 } from "../data/mockData";
 import { type ZoneData, type TechType } from "../data/zones";
 import {
   fetchCountyMetricsViaJob,
   fetchCountyBrief,
+  fetchHeatmap,
+  type HeatmapCell,
   submitNaturalLanguageQuery,
   type QueryFilters,
 } from "../lib/api";
@@ -27,11 +27,6 @@ interface LumenState {
   weightRevenue: number;
   weightCarbon: number;
 
-  // Grid data
-  gridCells: GridCell[];
-
-  // Selected site (grid cell mode)
-  selectedCell: GridCell | null;
   siteAssessment: SiteAssessment | null;
   rightPanelOpen: boolean;
 
@@ -62,6 +57,11 @@ interface LumenState {
   showHeatmap: boolean;
   showZones: boolean;
 
+  // Real county scoring cache (from backend /heatmap, keyed by county FIPS)
+  countyMetricsByFips: Record<string, HeatmapCell>;
+  countyMetricsStatus: "idle" | "loading" | "success" | "error";
+  countyMetricsError: string | null;
+
   // Actions
   setTechType: (t: TechType) => void;
   setCarbonPrice: (p: number) => void;
@@ -69,7 +69,6 @@ interface LumenState {
   setTimeHour: (h: number) => void;
   setIsLive: (live: boolean) => void;
   setWeights: (w: { weightLcoe?: number; weightRevenue?: number; weightCarbon?: number }) => void;
-  selectCell: (cell: GridCell | null) => void;
   fetchCountyData: (fips: string | null, name?: string, stateFips?: string) => Promise<void>;
   retryCountyFetch: () => Promise<void>;
   pinCounty: (fips: string, data: ZoneData) => void;
@@ -83,6 +82,7 @@ interface LumenState {
   toggleHeatmap: () => void;
   toggleZones: () => void;
   recalculate: () => void;
+  refreshCountyMetrics: () => Promise<void>;
 }
 
 export const useLumenStore = create<LumenState>((set, get) => ({
@@ -96,9 +96,6 @@ export const useLumenStore = create<LumenState>((set, get) => ({
   weightRevenue: 1.0,
   weightCarbon: 1.0,
 
-  gridCells: generateGridCells("solar", 50, 1000, 14, 1.0, 1.0, 1.0),
-
-  selectedCell: null,
   siteAssessment: null,
   rightPanelOpen: false,
 
@@ -124,6 +121,10 @@ export const useLumenStore = create<LumenState>((set, get) => ({
   showHeatmap: true,
   showZones: true,
 
+  countyMetricsByFips: {},
+  countyMetricsStatus: "idle",
+  countyMetricsError: null,
+
   setTechType: (t) => {
     set({ techType: t });
     get().recalculate();
@@ -144,23 +145,6 @@ export const useLumenStore = create<LumenState>((set, get) => ({
   setWeights: (w) => {
     set(w);
     get().recalculate();
-  },
-
-  selectCell: (cell) => {
-    if (cell) {
-      set({
-        selectedCell: cell,
-        rightPanelOpen: true,
-        selectedCountyId: null,
-        selectedCounty: null,
-      });
-    } else {
-      set({
-        selectedCell: null,
-        siteAssessment: null,
-        rightPanelOpen: false,
-      });
-    }
   },
 
   fetchCountyData: async (fips, name, stateFips) => {
@@ -335,10 +319,6 @@ export const useLumenStore = create<LumenState>((set, get) => ({
           response.parsed && response.matched_county_fips.length > 0
             ? true
             : state.showZones,
-        showHeatmap:
-          response.parsed && response.matched_county_fips.length > 0
-            ? false
-            : state.showHeatmap,
       }));
     } catch (error) {
       console.error("Failed to run natural language query:", error);
@@ -371,7 +351,40 @@ export const useLumenStore = create<LumenState>((set, get) => ({
   toggleZones: () => set((s) => ({ showZones: !s.showZones })),
 
   recalculate: () => {
-    const { techType, carbonPrice, capex, timeHour, weightLcoe, weightRevenue, weightCarbon } = get();
-    set({ gridCells: generateGridCells(techType, carbonPrice, capex, timeHour, weightLcoe, weightRevenue, weightCarbon) });
+    // Zones are now driven by real backend scoring; re-fetch when scenario changes.
+    void get().refreshCountyMetrics();
+  },
+
+  refreshCountyMetrics: async () => {
+    const { techType, capex, carbonPrice, weightLcoe, weightRevenue, weightCarbon } = get();
+    set({ countyMetricsStatus: "loading", countyMetricsError: null });
+    try {
+      const resp = await fetchHeatmap({
+        technology: techType,
+        capacity_mw: 50.0,
+        capex_usd_per_kw: capex,
+        carbon_price_usd_per_ton: carbonPrice,
+        cost_weight: weightLcoe,
+        revenue_weight: weightRevenue,
+        carbon_weight: weightCarbon,
+      });
+      const byFips: Record<string, HeatmapCell> = {};
+      for (const cell of resp.cells) {
+        const id = cell.cell_id || "";
+        if (id.startsWith("county_")) {
+          byFips[id.replace("county_", "")] = cell;
+        }
+      }
+      set({
+        countyMetricsByFips: byFips,
+        countyMetricsStatus: "success",
+        countyMetricsError: null,
+      });
+    } catch (e) {
+      set({
+        countyMetricsStatus: "error",
+        countyMetricsError: e instanceof Error ? e.message : "Failed to fetch county metrics",
+      });
+    }
   },
 }));

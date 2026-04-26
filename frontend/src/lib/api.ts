@@ -155,3 +155,60 @@ export async function submitNaturalLanguageQuery(query: string): Promise<QueryRe
     throw normalizeApiError(err, endpoint);
   }
 }
+
+export interface HeatmapCell {
+  cell_id: string;
+  lat: number;
+  lon: number;
+  score: number;
+  raw_capacity_factor: number;
+  raw_lcoe_usd_per_mwh: number;
+  raw_revenue_usd_per_mwh: number;
+  raw_carbon_value_usd_per_mwh: number;
+}
+
+export interface HeatmapResponse {
+  technology: "solar" | "wind";
+  score_min: number;
+  score_max: number;
+  score_unit: string;
+  cell_count: number;
+  cells: HeatmapCell[];
+}
+
+export async function fetchHeatmap(payload: {
+  technology: "solar" | "wind";
+  capacity_mw: number;
+  capex_usd_per_kw: number;
+  opex_usd_per_kw_year?: number;
+  discount_rate?: number;
+  project_lifetime_years?: number;
+  carbon_price_usd_per_ton: number;
+  cost_weight: number;
+  revenue_weight: number;
+  carbon_weight: number;
+}): Promise<HeatmapResponse> {
+  const endpoint = "/heatmap";
+  try {
+    const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        technology: payload.technology,
+        capacity_mw: payload.capacity_mw,
+        capex_usd_per_kw: payload.capex_usd_per_kw,
+        opex_usd_per_kw_year: payload.opex_usd_per_kw_year ?? 35.0,
+        discount_rate: payload.discount_rate ?? 0.06,
+        project_lifetime_years: payload.project_lifetime_years ?? 25,
+        carbon_price_usd_per_ton: payload.carbon_price_usd_per_ton,
+        cost_weight: payload.cost_weight,
+        revenue_weight: payload.revenue_weight,
+        carbon_weight: payload.carbon_weight,
+      }),
+    });
+    if (!response.ok) throw new Error(`API error ${response.status}: ${response.statusText}`);
+    return response.json();
+  } catch (err) {
+    throw normalizeApiError(err, endpoint);
+  }
+}

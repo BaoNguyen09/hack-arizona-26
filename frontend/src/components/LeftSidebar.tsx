@@ -13,6 +13,11 @@ import {
   Info,
   ExternalLink,
   SlidersHorizontal,
+  Wind,
+  Sun,
+  Droplets,
+  Flame,
+  Atom,
 } from "lucide-react";
 import { useLumenStore } from "../store/useLumenStore";
 import { AnimatedNumber } from "./AnimatedNumber";
@@ -113,7 +118,7 @@ export function LeftSidebar() {
                 <div className="flex items-center gap-2">
                   <span className="text-lg">🇺🇸</span>
                   <h2 className="text-sm font-semibold text-white">
-                    Lumen Analytics
+                    CONUS Grid
                   </h2>
                 </div>
                 <button
@@ -158,40 +163,21 @@ export function LeftSidebar() {
               </div>
             </div>
 
-            {/* ── Big Metrics ────────────────────────── */}
+            {/* ── Carbon Intensity Gauge (Electricity Maps style) ─── */}
             <div className="px-4 pb-4">
-              <div className="grid grid-cols-3 gap-3 mb-4">
-                <MetricRing
-                  label="Carbon Intensity"
-                  value={currentData.carbonIntensity}
-                  unit="gCO₂eq/kWh"
-                  color={
-                    currentData.carbonIntensity < 200
-                      ? "#10b981"
-                      : currentData.carbonIntensity < 350
-                      ? "#f59e0b"
-                      : "#ef4444"
-                  }
-                  progress={Math.min(100, (currentData.carbonIntensity / 600) * 100)}
-                />
-                <MetricRing
-                  label="Carbon-free"
-                  value={carbonFree}
-                  unit="%"
-                  color="#a1a1aa"
-                  progress={carbonFree}
-                />
-                <MetricRing
-                  label="Renewable"
-                  value={renewable}
-                  unit="%"
-                  color="#fff"
-                  progress={renewable}
-                />
+              <CarbonGauge
+                value={currentData.carbonIntensity}
+                carbonFree={carbonFree}
+                renewable={renewable}
+              />
+
+              {/* ── Power Origin Breakdown (Electricity Maps style) ─── */}
+              <div className="mt-4">
+                <PowerOriginBreakdown currentData={currentData} />
               </div>
 
               {/* ── Tab navigation ───────────────────── */}
-              <div className="flex gap-0.5 mb-4 bg-gray-800/40 rounded-lg p-0.5 border border-gray-700/30">
+              <div className="flex gap-0.5 mb-4 mt-5 bg-gray-800/40 rounded-lg p-0.5 border border-gray-700/30">
                 {tabs.map((tab) => (
                   <button
                     key={tab.id}
@@ -280,63 +266,200 @@ export function LeftSidebar() {
   );
 }
 
-// ── Metric Ring Component ──────────────────────────────
-function MetricRing({
-  label,
+// ── Carbon Intensity Gauge (Electricity Maps-inspired) ──────
+function CarbonGauge({
   value,
-  unit,
-  color,
-  progress,
+  carbonFree,
+  renewable,
 }: {
-  label: string;
   value: number;
-  unit: string;
-  color: string;
-  progress: number;
+  carbonFree: number;
+  renewable: number;
 }) {
-  const radius = 28;
-  const circumference = 2 * Math.PI * radius;
-  const offset = circumference - (progress / 100) * circumference;
+  const gaugeColor =
+    value < 100 ? "#10b981" :
+    value < 200 ? "#84cc16" :
+    value < 350 ? "#f59e0b" :
+    value < 500 ? "#ea580c" : "#ef4444";
+
+  // Gauge arc (0-600 range mapped to 0-180 degrees)
+  const angle = Math.min(180, (value / 600) * 180);
+  const radius = 60;
+  const cx = 70;
+  const cy = 65;
+
+  const startAngle = Math.PI;
+  const endAngle = startAngle - (angle * Math.PI) / 180;
+  const x1 = cx + radius * Math.cos(startAngle);
+  const y1 = cy + radius * Math.sin(startAngle);
+  const x2 = cx + radius * Math.cos(endAngle);
+  const y2 = cy + radius * Math.sin(endAngle);
+  const largeArc = angle > 180 ? 1 : 0;
+
+  const trackPath = `M ${cx - radius} ${cy} A ${radius} ${radius} 0 0 1 ${cx + radius} ${cy}`;
+  const valuePath = angle > 0
+    ? `M ${x1} ${y1} A ${radius} ${radius} 0 ${largeArc} 1 ${x2} ${y2}`
+    : "";
 
   return (
-    <div className="flex flex-col items-center gap-1">
-      <div className="relative w-16 h-16">
-        <svg className="w-16 h-16 -rotate-90" viewBox="0 0 64 64">
-          <circle
-            cx="32"
-            cy="32"
-            r={radius}
+    <div className="flex items-start gap-4">
+      {/* Gauge */}
+      <div className="relative flex-shrink-0">
+        <svg width="140" height="80" viewBox="0 0 140 80">
+          {/* Track */}
+          <path
+            d={trackPath}
             fill="none"
-            stroke="rgba(255,255,255,0.05)"
-            strokeWidth="4"
-          />
-          <motion.circle
-            cx="32"
-            cy="32"
-            r={radius}
-            fill="none"
-            stroke={color}
-            strokeWidth="4"
+            stroke="rgba(255,255,255,0.06)"
+            strokeWidth="10"
             strokeLinecap="round"
-            strokeDasharray={circumference}
-            initial={{ strokeDashoffset: circumference }}
-            animate={{ strokeDashoffset: offset }}
-            transition={{ duration: 1, ease: "easeOut" }}
-            style={{ filter: `drop-shadow(0 0 6px ${color}40)` }}
           />
+          {/* Value */}
+          {valuePath && (
+            <motion.path
+              d={valuePath}
+              fill="none"
+              stroke={gaugeColor}
+              strokeWidth="10"
+              strokeLinecap="round"
+              initial={{ pathLength: 0 }}
+              animate={{ pathLength: 1 }}
+              transition={{ duration: 1, ease: "easeOut" }}
+              style={{ filter: `drop-shadow(0 0 8px ${gaugeColor}50)` }}
+            />
+          )}
         </svg>
-        <div className="absolute inset-0 flex flex-col items-center justify-center">
-          <span className="text-sm font-bold text-white" style={{ color }}>
+        <div className="absolute inset-x-0 bottom-0 text-center">
+          <span className="text-2xl font-bold tabular-nums" style={{ color: gaugeColor }}>
             <AnimatedNumber value={value} decimals={0} />
           </span>
+          <p className="text-[9px] text-gray-500 -mt-0.5">gCO₂eq/kWh</p>
         </div>
       </div>
-      <span className="text-[9px] text-gray-400 text-center leading-tight">
-        {unit}
-      </span>
-      <span className="text-[9px] text-gray-500 text-center leading-tight">
-        {label}
-      </span>
+
+      {/* Key metrics */}
+      <div className="flex-1 space-y-2.5 pt-1">
+        <div className="flex items-center justify-between">
+          <span className="text-[10px] text-gray-500 uppercase tracking-wide">Low-carbon</span>
+          <div className="flex items-center gap-1.5">
+            <div className="w-16 h-1.5 bg-gray-800 rounded-full overflow-hidden">
+              <motion.div
+                className="h-full rounded-full"
+                style={{ background: "#10b981" }}
+                initial={{ width: 0 }}
+                animate={{ width: `${carbonFree}%` }}
+                transition={{ duration: 0.8, ease: "easeOut" }}
+              />
+            </div>
+            <span className="text-[11px] font-semibold text-white tabular-nums w-8 text-right">
+              <AnimatedNumber value={carbonFree} decimals={0} suffix="%" />
+            </span>
+          </div>
+        </div>
+        <div className="flex items-center justify-between">
+          <span className="text-[10px] text-gray-500 uppercase tracking-wide">Renewable</span>
+          <div className="flex items-center gap-1.5">
+            <div className="w-16 h-1.5 bg-gray-800 rounded-full overflow-hidden">
+              <motion.div
+                className="h-full rounded-full"
+                style={{ background: "#22d3ee" }}
+                initial={{ width: 0 }}
+                animate={{ width: `${renewable}%` }}
+                transition={{ duration: 0.8, ease: "easeOut", delay: 0.1 }}
+              />
+            </div>
+            <span className="text-[11px] font-semibold text-white tabular-nums w-8 text-right">
+              <AnimatedNumber value={renewable} decimals={0} suffix="%" />
+            </span>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Power Origin Breakdown (Electricity Maps-inspired) ──────
+const SOURCE_CONFIG = [
+  { key: "solar", label: "Solar", icon: Sun, color: "#f59e0b" },
+  { key: "wind", label: "Wind", icon: Wind, color: "#06b6d4" },
+  { key: "hydro", label: "Hydro", icon: Droplets, color: "#3b82f6" },
+  { key: "nuclear", label: "Nuclear", icon: Atom, color: "#8b5cf6" },
+  { key: "gas", label: "Natural Gas", icon: Flame, color: "#6b7280" },
+  { key: "coal", label: "Coal", icon: Flame, color: "#374151" },
+] as const;
+
+function PowerOriginBreakdown({ currentData }: { currentData: any }) {
+  const sources = SOURCE_CONFIG.map((s) => ({
+    ...s,
+    value: currentData[s.key] as number,
+  }));
+  const total = sources.reduce((sum, s) => sum + s.value, 0);
+
+  return (
+    <div>
+      <div className="flex items-center gap-1.5 mb-2.5">
+        <Zap className="w-3 h-3 text-gray-500" />
+        <h3 className="text-[10px] font-medium text-gray-400 uppercase tracking-wider">
+          Power Origin
+        </h3>
+        <span className="ml-auto text-[10px] text-gray-500 tabular-nums">
+          {total.toFixed(1)} GW
+        </span>
+      </div>
+
+      {/* Stacked bar */}
+      <div className="flex h-3 rounded-full overflow-hidden mb-3">
+        {sources.map((s) => (
+          <motion.div
+            key={s.key}
+            className="relative group"
+            style={{ background: s.color }}
+            initial={{ width: 0 }}
+            animate={{ width: `${(s.value / total) * 100}%` }}
+            transition={{ duration: 0.6, ease: "easeOut" }}
+          />
+        ))}
+      </div>
+
+      {/* Source rows */}
+      <div className="space-y-1">
+        {sources.map((s) => {
+          const pct = total > 0 ? (s.value / total) * 100 : 0;
+          const Icon = s.icon;
+          return (
+            <div
+              key={s.key}
+              className="flex items-center gap-2 py-1 px-2 rounded-md hover:bg-white/[0.03] transition-colors group"
+            >
+              <div
+                className="w-5 h-5 rounded flex items-center justify-center flex-shrink-0"
+                style={{ background: `${s.color}20` }}
+              >
+                <Icon className="w-3 h-3" style={{ color: s.color }} />
+              </div>
+              <span className="text-[11px] text-gray-300 flex-1">{s.label}</span>
+              <div className="flex items-center gap-3">
+                {/* Mini bar */}
+                <div className="w-14 h-1 bg-gray-800 rounded-full overflow-hidden">
+                  <motion.div
+                    className="h-full rounded-full"
+                    style={{ background: s.color }}
+                    initial={{ width: 0 }}
+                    animate={{ width: `${pct}%` }}
+                    transition={{ duration: 0.5, ease: "easeOut" }}
+                  />
+                </div>
+                <span className="text-[10px] text-gray-400 tabular-nums w-10 text-right">
+                  {pct.toFixed(1)}%
+                </span>
+                <span className="text-[10px] text-gray-500 tabular-nums w-12 text-right">
+                  {s.value.toFixed(1)} GW
+                </span>
+              </div>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }

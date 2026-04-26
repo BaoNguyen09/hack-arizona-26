@@ -61,6 +61,7 @@ class SqliteProcessedStore:
                 """
                 SELECT
                     suf.spatial_unit_id AS cell_id,
+                    su.fips AS fips,
                     su.lat AS lat,
                     su.lon AS lon,
                     suf.solar_cf_mean,

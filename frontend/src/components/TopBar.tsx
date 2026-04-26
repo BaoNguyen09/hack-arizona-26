@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { motion } from "framer-motion";
+import { useState, useRef, useEffect } from "react";
+import { motion, AnimatePresence } from "framer-motion";
 import {
   Sun,
   Wind,
@@ -9,11 +9,26 @@ import {
   Map,
   Grid3x3,
   ChevronDown,
+  X,
+  Loader2,
+  Sparkles,
+  Command,
 } from "lucide-react";
 import { useLumenStore } from "../store/useLumenStore";
 
+const SUGGESTIONS = [
+  "Top 10 solar counties in Texas",
+  "Wind in Iowa with CF above 40%",
+  "Cheapest solar in the Southwest",
+  "Low carbon in California",
+  "Best 20 counties for wind",
+  "LCOE below 40 $/MWh",
+];
+
 export function TopBar() {
   const [queryText, setQueryText] = useState("");
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
   const {
     techType,
     setTechType,
@@ -29,7 +44,35 @@ export function TopBar() {
     clearQueryResults,
     queryMessage,
     queryPending,
+    matchedCountyFips,
   } = useLumenStore();
+
+  // ⌘K shortcut
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === "k") {
+        e.preventDefault();
+        inputRef.current?.focus();
+        setShowSuggestions(true);
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, []);
+
+  const handleSubmit = (text: string) => {
+    const trimmed = text.trim();
+    if (trimmed) {
+      void runNaturalLanguageQuery(trimmed);
+      setShowSuggestions(false);
+    }
+  };
+
+  const handleClear = () => {
+    setQueryText("");
+    clearQueryResults();
+    setShowSuggestions(false);
+  };
 
   return (
     <motion.header
@@ -144,38 +187,125 @@ export function TopBar() {
 
       <div className="flex-1" />
 
-      <div className="relative max-w-xs w-full">
+      {/* ── Query Bar ──────────────────────────── */}
+      <div className="relative max-w-sm w-full">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-500" />
         <input
+          ref={inputRef}
           id="nl-query"
           type="text"
           placeholder="Ask Lumen anything..."
           value={queryText}
-          onChange={(e) => setQueryText(e.target.value)}
+          onChange={(e) => {
+            setQueryText(e.target.value);
+            setShowSuggestions(e.target.value.length === 0);
+          }}
+          onFocus={() => setShowSuggestions(queryText.length === 0)}
           onKeyDown={(e) => {
-            if (e.key === "Enter") {
-              void runNaturalLanguageQuery(queryText);
-            }
+            if (e.key === "Enter") handleSubmit(queryText);
             if (e.key === "Escape") {
-              setQueryText("");
-              clearQueryResults();
+              handleClear();
+              inputRef.current?.blur();
             }
           }}
-          className="w-full pl-9 pr-12 py-1.5 rounded-lg bg-white/5 border border-white/10 text-xs text-gray-300 placeholder-gray-500 focus:outline-none focus:border-white/30 transition-all"
+          className="w-full pl-9 pr-20 py-1.5 rounded-lg bg-white/5 border border-white/10 text-xs text-gray-300 placeholder-gray-500 focus:outline-none focus:border-white/30 focus:bg-white/[0.07] transition-all"
         />
-        <button
-          type="button"
-          onClick={() => void runNaturalLanguageQuery(queryText)}
-          className="absolute right-1.5 top-1/2 -translate-y-1/2 px-2 py-1 rounded-md text-[10px] border border-white/10 bg-black/50 text-gray-300 hover:bg-white/10 transition-all disabled:opacity-60"
-          disabled={queryPending}
-        >
-          {queryPending ? "..." : "Run"}
-        </button>
-        {queryMessage ? (
-          <div className="absolute top-full left-0 right-0 mt-1 rounded-md border border-white/10 bg-black/85 px-2 py-1.5 text-[10px] text-gray-300 shadow-lg">
-            {queryMessage}
+
+        <div className="absolute right-1.5 top-1/2 -translate-y-1/2 flex items-center gap-1">
+          {/* Match count badge */}
+          <AnimatePresence>
+            {matchedCountyFips.length > 0 && (
+              <motion.span
+                initial={{ scale: 0, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                exit={{ scale: 0, opacity: 0 }}
+                className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 tabular-nums"
+              >
+                {matchedCountyFips.length}
+              </motion.span>
+            )}
+          </AnimatePresence>
+
+          {/* Clear button */}
+          {queryText && (
+            <button
+              type="button"
+              onClick={handleClear}
+              className="w-5 h-5 rounded flex items-center justify-center hover:bg-white/10 transition-colors"
+            >
+              <X className="w-3 h-3 text-gray-400" />
+            </button>
+          )}
+
+          {/* Run button */}
+          <button
+            type="button"
+            onClick={() => handleSubmit(queryText)}
+            className="px-2 py-1 rounded-md text-[10px] border border-white/10 bg-black/50 text-gray-300 hover:bg-white/10 transition-all disabled:opacity-60 flex items-center gap-1"
+            disabled={queryPending || !queryText.trim()}
+          >
+            {queryPending ? (
+              <Loader2 className="w-3 h-3 animate-spin-slow" />
+            ) : (
+              "Run"
+            )}
+          </button>
+        </div>
+
+        {/* Keyboard shortcut hint */}
+        {!queryText && (
+          <div className="absolute right-14 top-1/2 -translate-y-1/2 flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-white/5 border border-white/10">
+            <Command className="w-2.5 h-2.5 text-gray-500" />
+            <span className="text-[9px] text-gray-500 font-medium">K</span>
           </div>
-        ) : null}
+        )}
+
+        {/* Results dropdown */}
+        <AnimatePresence>
+          {queryMessage && !showSuggestions ? (
+            <motion.div
+              initial={{ opacity: 0, y: -4 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -4 }}
+              className="absolute top-full left-0 right-0 mt-1.5 rounded-lg border border-white/10 bg-[#0a0a0a]/95 backdrop-blur-xl px-3 py-2.5 shadow-2xl"
+            >
+              <div className="flex items-start gap-2">
+                <Sparkles className="w-3.5 h-3.5 text-cyan-400 flex-shrink-0 mt-0.5" />
+                <p className="text-[11px] text-gray-300 leading-relaxed">{queryMessage}</p>
+              </div>
+            </motion.div>
+          ) : null}
+        </AnimatePresence>
+
+        {/* Suggestions dropdown */}
+        <AnimatePresence>
+          {showSuggestions && !queryText && !queryMessage && (
+            <motion.div
+              initial={{ opacity: 0, y: -4 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -4 }}
+              className="absolute top-full left-0 right-0 mt-1.5 rounded-lg border border-white/10 bg-[#0a0a0a]/95 backdrop-blur-xl px-3 py-2.5 shadow-2xl"
+            >
+              <p className="text-[9px] text-gray-500 uppercase tracking-wider font-medium mb-2">
+                Try asking
+              </p>
+              <div className="flex flex-wrap gap-1.5">
+                {SUGGESTIONS.map((s) => (
+                  <button
+                    key={s}
+                    onClick={() => {
+                      setQueryText(s);
+                      handleSubmit(s);
+                    }}
+                    className="query-chip"
+                  >
+                    {s}
+                  </button>
+                ))}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
 
       <button className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 text-xs text-gray-300 hover:bg-white/10 transition-all">
