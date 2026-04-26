@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
+import json
 import textwrap
 from typing import Any
-
-from google import genai
 
 from backend.app.core.config import settings
 from backend.app.models.base import BaseModelStep
@@ -109,7 +108,7 @@ def _build_brief_inputs(payload: dict[str, Any]) -> dict[str, Any]:
 def _render_template_brief(inputs: dict[str, Any]) -> str:
     return "\n".join(
         [
-            f"Verdict: {inputs['verdict']} screening case for {inputs['technology_label'].lower()}.",
+            f"Site Assessment: {inputs['verdict']} screening case for {inputs['technology_label'].lower()}.",
             (
                 "Economics: "
                 f"{inputs['economics_reason']}. Estimated LCOE is ${inputs['lcoe']:.1f}/MWh "
@@ -140,7 +139,7 @@ class TemplateBriefModel(BaseModelStep):
     """Deterministic site assessment brief used as the safe fallback."""
 
     name = "template_brief"
-    version = "1.1.0"
+    version = "1.1.1"
 
     def run(self, payload: dict[str, Any]) -> BriefResponse:
         text = _render_template_brief(_build_brief_inputs(payload))
@@ -148,27 +147,29 @@ class TemplateBriefModel(BaseModelStep):
 
 
 class LLMBriefModel(BaseModelStep):
-    """Gemini-backed site assessment brief model."""
+    """LLM-backed site assessment brief model."""
 
     name = "llm_brief"
-    version = "gemini-2.5-flash-v2"
+    version = "1.2.1"
 
     def __init__(self) -> None:
-        self._client: genai.Client | None = None
+        self._client: Any | None = None
 
     @property
     def configured(self) -> bool:
-        """Return whether Gemini is configured."""
-        return bool(settings.gemini_api_key)
+        """Return whether at least one LLM provider is configured."""
+        return bool(settings.gemini_api_key or settings.openai_api_key)
 
-    def _client_for_request(self) -> genai.Client:
-        if not self.configured:
+    def _client_for_request(self) -> Any:
+        if not settings.gemini_api_key:
             raise RuntimeError("GEMINI_API_KEY is not configured")
         if self._client is None:
+            from google import genai  # noqa: PLC0415
+
             self._client = genai.Client(api_key=settings.gemini_api_key)
         return self._client
 
-    def run(self, payload: dict[str, Any]) -> BriefResponse:
+    def _run_gemini(self, payload: dict[str, Any]) -> str:
         inputs = _build_brief_inputs(payload)
 
         prompt = textwrap.dedent(
@@ -224,4 +225,71 @@ class LLMBriefModel(BaseModelStep):
         text = (response.text or "").strip()
         if not text:
             raise RuntimeError("Gemini returned an empty brief")
-        return BriefResponse(status="success", text=text)
+        return text
+
+    def _run_openai(self, payload: dict[str, Any]) -> str:
+        api_key = settings.openai_api_key
+        if not api_key:
+            raise RuntimeError("OPENAI_API_KEY is not configured")
+        site = payload["site"]
+        scenario = payload.get("scenario", {})
+
+        system_prompt = (
+            "You are a renewable energy site assessment expert. "
+            "Write a concise (130-160 word) site assessment brief for energy developers. "
+            "Be specific, data-driven, and professional. Focus on economics, carbon value, and risks. "
+            "Do NOT use markdown or bullet points — plain prose only."
+        )
+        user_prompt = (
+            "Generate a site assessment brief for the following site metrics:\n"
+            f"{json.dumps(site, indent=2)}\n\n"
+            f"Scenario parameters:\n{json.dumps(scenario, indent=2)}"
+        )
+
+        import httpx  # noqa: PLC0415
+
+        response = httpx.post(
+            "https://api.openai.com/v1/chat/completions",
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "model": "gpt-4o-mini",
+                "messages": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+                "max_tokens": 300,
+                "temperature": 0.4,
+            },
+            timeout=15.0,
+        )
+        response.raise_for_status()
+        text = response.json()["choices"][0]["message"]["content"].strip()
+        if not text:
+            raise RuntimeError("OpenAI returned an empty brief")
+        return text
+
+    def run(self, payload: dict[str, Any]) -> BriefResponse:
+        errors: list[str] = []
+
+        if settings.gemini_api_key:
+            try:
+                return BriefResponse(status="success", text=self._run_gemini(payload))
+            except Exception as exc:  # pragma: no cover - defensive provider fallback
+                errors.append(f"Gemini {type(exc).__name__}")
+
+        if settings.openai_api_key:
+            try:
+                return BriefResponse(status="success", text=self._run_openai(payload))
+            except Exception as exc:  # pragma: no cover - defensive provider fallback
+                errors.append(f"OpenAI {type(exc).__name__}")
+
+        fallback = TemplateBriefModel()
+        result = fallback.run(payload)
+        if errors:
+            result.status = f"fallback (LLM error: {'; '.join(errors)})"
+        elif not self.configured:
+            result.status = "fallback (LLM not configured)"
+        return result

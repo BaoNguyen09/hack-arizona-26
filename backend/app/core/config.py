@@ -13,6 +13,8 @@ class Settings(BaseSettings):
     app_env: str = "development"
     data_dir: str = "./data"
     processed_dataset_path: str = "./data/processed/lumen_cells.gpkg"
+    lumen_db_path: str = "./data/processed/lumen.sqlite3"
+    use_sqlite_db: bool = True
 
     # API Keys (for future use when real ingestion is implemented)
     eia_api_key: str = ""
