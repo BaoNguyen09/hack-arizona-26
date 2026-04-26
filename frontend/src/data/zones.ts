@@ -1,5 +1,7 @@
 import { STATE_DATA } from "./stateData";
 
+export type TechType = "solar" | "wind";
+
 // ── Zone Types ─────────────────────────────────────────
 export interface ZoneData {
   id: string;          // County FIPS code (e.g. '06037')
@@ -9,9 +11,11 @@ export interface ZoneData {
   renewablePercent: number;
   carbonFreePercent: number;
   price: number;             // $/MWh
-  lcoe: number;              // $/MWh (Levelized Cost of Energy)
+  lcoe: number;              // $/MWh (static, unscored)
   load: number;              // GW
   generation: Record<string, number>; // source → GW
+  solarCF: number;           // capacity factor 0-1
+  windCF: number;            // capacity factor 0-1
 }
 
 // ── Carbon Intensity → Color (Discrete Palette) ──────────
@@ -24,6 +28,57 @@ export function carbonToColor(ci: number): string {
   if (ci < 650) return "#dc2626"; // Red
   if (ci < 800) return "#991b1b"; // Dark Red
   return "#450a0a"; // Extremely Dark Red/Brown
+}
+
+// ── Cost Score → Color (green=cheap, red=expensive) ──────
+// normalizedScore: 0 = cheapest (green), 1 = most expensive (red)
+export function scoreToColor(t: number): string {
+  const clamped = Math.max(0, Math.min(1, t));
+  if (clamped < 0.33) {
+    const s = clamped / 0.33;
+    return `rgb(${Math.round(34 + s * 211)},${Math.round(197 - s * 39)},${Math.round(94 - s * 83)})`;
+  } else if (clamped < 0.66) {
+    const s = (clamped - 0.33) / 0.33;
+    return `rgb(${Math.round(245 - s * 6)},${Math.round(158 - s * 90)},${Math.round(11 + s * 57)})`;
+  } else {
+    const s = (clamped - 0.66) / 0.34;
+    return `rgb(${Math.round(239 - s * 20)},${Math.round(68 - s * 30)},${Math.round(68 - s * 10)})`;
+  }
+}
+
+// ── Scoring Engine (mirrors backend engine/scoring.py) ───
+
+function computeCRF(discountRate = 0.06, lifetimeYears = 25): number {
+  if (discountRate === 0) return 1 / lifetimeYears;
+  return discountRate / (1 - Math.pow(1 + discountRate, -lifetimeYears));
+}
+
+/** LCOE in $/MWh: (CAPEX * CRF + OPEX) / (CF * 8760) * 1000 */
+export function computeLCOE(cf: number, capex: number, techType: TechType = "solar"): number {
+  if (cf <= 0) return 9999;
+  const opex = techType === "solar" ? 15 : 25; // $/kW/year
+  const crf = computeCRF();
+  const annualCostPerKw = capex * crf + opex;
+  const annualGenPerKw = cf * 8760;
+  return (annualCostPerKw / annualGenPerKw) * 1000; // $/MWh
+}
+
+/**
+ * Composite cost score (lower = better site).
+ *   Score = LCOE - Revenue - CarbonValue
+ * Matches the backend formula exactly.
+ */
+export function computeCompositeCostScore(
+  county: ZoneData,
+  techType: TechType,
+  capex: number,
+  carbonPrice: number,
+): number {
+  const cf = techType === "solar" ? county.solarCF : county.windCF;
+  const lcoe = computeLCOE(cf, capex, techType);
+  const revenue = county.price; // $/MWh (wholesale)
+  const carbonValue = (county.carbonIntensity / 1000) * carbonPrice; // tons/MWh * $/ton
+  return lcoe - revenue - carbonValue;
 }
 
 // ── FIPS to State Abbreviation Map ─────────────────────
@@ -41,17 +96,13 @@ export const fipsToState: Record<string, string> = {
 };
 
 // ── Helpers ────────────────────────────────────────────
-// Helper: seeded random to keep data consistent
 function seededRandom(seed: number): () => number {
-  // Hash the seed slightly to break linear correlation of contiguous FIPS codes
+  // Hash seed to break linear correlation of contiguous FIPS codes
   let s = (seed ^ 0x5deece66d) & 0x7fffffff;
   if (s === 0) s = 1;
-  
-  // Advance the generator a few times to thoroughly mix
   for (let i = 0; i < 5; i++) {
     s = (s * 16807) % 2147483647;
   }
-  
   return () => {
     s = (s * 16807) % 2147483647;
     return (s - 1) / 2147483646;
@@ -60,36 +111,30 @@ function seededRandom(seed: number): () => number {
 
 export function generateCountyData(fips: string, name: string, stateFips: string): ZoneData {
   const state = fipsToState[stateFips] || "US";
-  
-  // Use FIPS as a stable numerical seed
   const seed = parseInt(fips, 10) || name.split("").reduce((sum, char) => sum + char.charCodeAt(0), 0);
   const rand = seededRandom(seed);
-  
-  // Regional energy characteristics (state level)
-  // Fetch state baseline from the provided CSV data
+
   const base = STATE_DATA[state] || { price: 100.0, solar: 5.0, wind: 5.0, hydro: 5.0, fossil: 85.0 };
-  
-  // Real world carbon logic: heavily influenced by fossil %
-  // 100% fossil ≈ 800 gCO₂eq/kWh, 0% = 0
+
   const ciBase = base.fossil * 8;
-  
-  // Massive localized county variance so adjacent counties look very different
-  // rand() gives 0 to 1.
   const carbonIntensity = Math.max(10, ciBase + (rand() * (ciBase * 0.8) - (ciBase * 0.4)));
-  
-  const lcoe = Math.max(15, 60 + (rand() * 80 - 40));
-  
-  // Calculate renewable and carbon free metrics
+
   const stateRenewable = base.solar + base.wind + base.hydro;
   const renewablePercent = Math.min(95, Math.max(5, stateRenewable + (rand() * 30 - 15)));
   const carbonFreePercent = Math.min(100, Math.max(renewablePercent, (100 - base.fossil) + (rand() * 10 - 5)));
-  
-  const statePrice = base.price * 10; // convert cents/kWh to $/MWh
+
+  const statePrice = base.price * 10;
   const price = Math.max(10, statePrice + (rand() * (statePrice * 0.4) - (statePrice * 0.2)));
-  
-  // Generation breakdown roughly matches the state mix
+
+  // Solar & wind capacity factors — mirrors backend county_store.py exactly
+  const solarCF = Math.max(0.1, Math.min(0.35, 0.15 + (base.solar / 100 * 0.5) + (rand() * 0.1 - 0.05)));
+  const windCF = Math.max(0.1, Math.min(0.55, 0.2 + (base.wind / 100 * 0.5) + (rand() * 0.1 - 0.05)));
+
+  // Static LCOE (for display-only, not scoring)
+  const lcoe = Math.max(15, 60 + (rand() * 80 - 40));
+
   const totalGen = 2 + rand() * 10;
-  
+
   return {
     id: fips,
     name,
@@ -99,7 +144,7 @@ export function generateCountyData(fips: string, name: string, stateFips: string
     carbonFreePercent: Math.round(carbonFreePercent),
     price: Math.round(price),
     lcoe: Math.round(lcoe),
-    load: Math.round(1 + rand() * 15 * 10) / 10, // counties have smaller load
+    load: Math.round(1 + rand() * 15 * 10) / 10,
     generation: {
       solar: (base.solar / 100) * totalGen,
       wind: (base.wind / 100) * totalGen,
@@ -107,46 +152,120 @@ export function generateCountyData(fips: string, name: string, stateFips: string
       nuclear: (Math.max(0, 100 - base.fossil - stateRenewable) / 100) * totalGen,
       gas: (base.fossil / 200) * totalGen,
       coal: (base.fossil / 200) * totalGen,
-    }
+    },
+    solarCF,
+    windCF,
   };
 }
 
-// Map cache for lazily generated counties
+// Map cache for lazily generated counties (county base data is stable)
 const countiesCache: Record<string, ZoneData> = {};
 
-export function getCounty(fips: string, name: string = "Unknown", stateFips: string = "00"): ZoneData {
+export function getCounty(fips: string, name = "Unknown", stateFips = "00"): ZoneData {
   if (!countiesCache[fips]) {
     countiesCache[fips] = generateCountyData(fips, name, stateFips);
   }
   return countiesCache[fips];
 }
 
-// ── Pre-process GeoJSON ────────────────────────────────
-export function enhanceCountyGeoJSON(geojson: GeoJSON.FeatureCollection): GeoJSON.FeatureCollection {
-  const features = geojson.features.map(f => {
-    // The FIPS code is either the feature ID or embedded in properties.
+// ── Scenario-Aware GeoJSON Enhancement ────────────────
+
+export interface EnhanceOptions {
+  techType?: TechType;
+  capex?: number;
+  carbonPrice?: number;
+  colorMode?: "cost" | "carbon";
+}
+
+/**
+ * Enhance a raw US counties GeoJSON with:
+ * - Composite cost scores based on current scenario (technology, capex, carbon price)
+ * - Color derived from the scenario-aware composite score
+ * - Tooltip-ready properties (CF, LCOE, carbon, price)
+ */
+export function enhanceCountyGeoJSON(
+  geojson: GeoJSON.FeatureCollection,
+  options: EnhanceOptions = {},
+): GeoJSON.FeatureCollection {
+  const {
+    techType = "solar",
+    capex = 1200,
+    carbonPrice = 50,
+    colorMode = "cost",
+  } = options;
+
+  // First pass: compute raw scores for all counties to normalize
+  const counties: ZoneData[] = [];
+  const fipsArr: string[] = [];
+
+  for (const f of geojson.features) {
     const fips = (f.id as string) || f.properties?.id || "00000";
     const name = f.properties?.NAME || f.properties?.name || "Unknown County";
     const stateFips = f.properties?.STATE || fips.substring(0, 2);
-    
-    const countyData = getCounty(fips, name, stateFips);
-    
+    const county = getCounty(fips, name, stateFips);
+    counties.push(county);
+    fipsArr.push(fips);
+  }
+
+  let scores: number[];
+  if (colorMode === "cost") {
+    scores = counties.map(c => computeCompositeCostScore(c, techType, capex, carbonPrice));
+    const minScore = Math.min(...scores);
+    const maxScore = Math.max(...scores);
+    const range = maxScore - minScore || 1;
+
+    const features = geojson.features.map((f, i) => {
+      const county = counties[i];
+      const score = scores[i];
+      const normalizedScore = (score - minScore) / range;
+      const cf = techType === "solar" ? county.solarCF : county.windCF;
+      const lcoe = computeLCOE(cf, capex, techType);
+
+      return {
+        ...f,
+        id: fipsArr[i],
+        properties: {
+          ...f.properties,
+          id: county.id,
+          name: county.name,
+          state: county.state,
+          shortName: `${county.name}, ${county.state}`,
+          color: scoreToColor(normalizedScore),
+          carbonIntensity: county.carbonIntensity,
+          lcoe: Math.round(lcoe),
+          renewablePercent: county.renewablePercent,
+          price: county.price,
+          capacityFactor: Math.round(cf * 1000) / 1000,
+          costScore: Math.round(score * 10) / 10,
+        },
+      };
+    });
+
+    return { ...geojson, features };
+  }
+
+  // Carbon mode (original behavior)
+  const features = geojson.features.map((f, i) => {
+    const county = counties[i];
     return {
       ...f,
-      id: fips,
+      id: fipsArr[i],
       properties: {
         ...f.properties,
-        id: countyData.id,
-        name: countyData.name,
-        state: countyData.state,
-        shortName: `${countyData.name}, ${countyData.state}`,
-        color: carbonToColor(countyData.carbonIntensity), // Discrete carbon color
-        carbonIntensity: countyData.carbonIntensity,
-        lcoe: countyData.lcoe,
-        renewablePercent: countyData.renewablePercent,
-        price: countyData.price
-      }
+        id: county.id,
+        name: county.name,
+        state: county.state,
+        shortName: `${county.name}, ${county.state}`,
+        color: carbonToColor(county.carbonIntensity),
+        carbonIntensity: county.carbonIntensity,
+        lcoe: county.lcoe,
+        renewablePercent: county.renewablePercent,
+        price: county.price,
+        capacityFactor: Math.round(county.solarCF * 1000) / 1000,
+        costScore: 0,
+      },
     };
   });
+
   return { ...geojson, features };
 }
