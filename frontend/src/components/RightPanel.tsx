@@ -10,8 +10,14 @@ import {
   Radio,
   TrendingUp,
   BarChart3,
+  AlertCircle,
+  RefreshCw,
+  Pin,
+  PinOff,
+  Download,
 } from "lucide-react";
 import { useLumenStore } from "../store/useLumenStore";
+import { exportAssessmentPdf } from "../lib/exportPdf";
 import { AnimatedNumber } from "./AnimatedNumber";
 import {
   GenerationPriceChart,
@@ -28,9 +34,13 @@ export function RightPanel() {
     rightPanelOpen,
     siteAssessment,
     selectedCounty,
+    selectedCountyId,
     selectCell,
     fetchCountyData,
+    retryCountyFetch,
     techType,
+    countyFetchStatus,
+    countyFetchError,
   } = useLumenStore();
 
   const closePanel = () => {
@@ -38,9 +48,12 @@ export function RightPanel() {
     fetchCountyData(null);
   };
 
+  // Panel is open when rightPanelOpen is set — this includes loading + error states
+  const isOpen = rightPanelOpen && (selectedCountyId !== null || siteAssessment !== null || selectedCounty !== null);
+
   return (
     <AnimatePresence>
-      {rightPanelOpen && (selectedCounty || siteAssessment) && (
+      {isOpen && (
         <>
           <motion.div
             initial={{ opacity: 0 }}
@@ -66,7 +79,15 @@ export function RightPanel() {
               borderLeft: "1px solid rgba(255, 255, 255, 0.08)",
             }}
           >
-            {selectedCounty ? (
+            {countyFetchStatus === "loading" ? (
+              <RightPanelSkeleton onClose={closePanel} />
+            ) : countyFetchStatus === "error" ? (
+              <RightPanelError
+                message={countyFetchError ?? "Something went wrong."}
+                onClose={closePanel}
+                onRetry={retryCountyFetch}
+              />
+            ) : selectedCounty ? (
               <CountyPanelContent
                 county={selectedCounty}
                 assessment={siteAssessment}
@@ -87,6 +108,113 @@ export function RightPanel() {
   );
 }
 
+// ── Loading Skeleton ───────────────────────────────────
+function RightPanelSkeleton({ onClose }: { onClose: () => void }) {
+  return (
+    <>
+      <div className="sticky top-0 z-10 px-5 pt-4 pb-3" style={{ background: "rgba(10,10,10,0.85)" }}>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2.5">
+            <div className="skeleton w-3 h-3 rounded-full" />
+            <div className="space-y-1.5">
+              <div className="skeleton h-3.5 w-36 rounded" />
+              <div className="skeleton h-2.5 w-24 rounded" />
+            </div>
+          </div>
+          <button
+            onClick={onClose}
+            className="w-7 h-7 rounded-md flex items-center justify-center hover:bg-gray-700/40 transition-colors"
+          >
+            <X className="w-4 h-4 text-gray-400" />
+          </button>
+        </div>
+        <div className="flex items-center gap-2 mt-2">
+          <div className="skeleton h-5 w-24 rounded-full" />
+          <div className="skeleton h-5 w-16 rounded-full" />
+        </div>
+      </div>
+
+      <div className="px-5 pb-6 space-y-5">
+        {/* Metric cards */}
+        <div className="grid grid-cols-2 gap-3">
+          {[...Array(4)].map((_, i) => (
+            <div key={i} className="px-3 py-3 rounded-xl bg-gray-800/40 border border-gray-700/30 space-y-2">
+              <div className="skeleton h-2.5 w-20 rounded" />
+              <div className="skeleton h-6 w-16 rounded" />
+            </div>
+          ))}
+        </div>
+        {/* Chart placeholders */}
+        <div className="space-y-1">
+          <div className="skeleton h-2.5 w-28 rounded" />
+          <div className="skeleton h-24 w-full rounded-lg" />
+        </div>
+        <div className="space-y-1">
+          <div className="skeleton h-2.5 w-32 rounded" />
+          <div className="skeleton h-32 w-full rounded-lg" />
+        </div>
+        <div className="space-y-1">
+          <div className="skeleton h-2.5 w-24 rounded" />
+          <div className="skeleton h-20 w-full rounded-lg" />
+        </div>
+        {/* AI brief placeholder */}
+        <div className="px-4 py-3 rounded-xl bg-gray-800/40 border border-gray-700/30 space-y-2">
+          <div className="skeleton h-2.5 w-full rounded" />
+          <div className="skeleton h-2.5 w-5/6 rounded" />
+          <div className="skeleton h-2.5 w-4/6 rounded" />
+        </div>
+      </div>
+    </>
+  );
+}
+
+// ── Error State ────────────────────────────────────────
+function RightPanelError({
+  message,
+  onClose,
+  onRetry,
+}: {
+  message: string;
+  onClose: () => void;
+  onRetry: () => void;
+}) {
+  return (
+    <>
+      <div className="sticky top-0 z-10 px-5 pt-4 pb-3" style={{ background: "rgba(10,10,10,0.85)" }}>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 text-red-400" />
+            <span className="text-sm font-medium text-white">Load failed</span>
+          </div>
+          <button
+            onClick={onClose}
+            className="w-7 h-7 rounded-md flex items-center justify-center hover:bg-gray-700/40 transition-colors"
+          >
+            <X className="w-4 h-4 text-gray-400" />
+          </button>
+        </div>
+      </div>
+
+      <div className="px-5 py-6 flex flex-col items-center gap-4 text-center">
+        <div className="w-12 h-12 rounded-full bg-red-500/10 border border-red-500/20 flex items-center justify-center">
+          <AlertCircle className="w-6 h-6 text-red-400" />
+        </div>
+        <div>
+          <p className="text-sm font-medium text-white mb-1">Couldn't load county data</p>
+          <p className="text-[12px] text-gray-400 max-w-[280px] leading-relaxed">{message}</p>
+        </div>
+        <button
+          onClick={onRetry}
+          className="flex items-center gap-2 px-4 py-2 rounded-lg bg-white/10 hover:bg-white/15 border border-white/10 text-sm text-white transition-colors"
+        >
+          <RefreshCw className="w-3.5 h-3.5" />
+          Retry
+        </button>
+      </div>
+    </>
+  );
+}
+
 // ── County Panel ───────────────────────────────────────
 function CountyPanelContent({
   county,
@@ -99,8 +227,11 @@ function CountyPanelContent({
   techType: string;
   onClose: () => void;
 }) {
+  const { pinCounty, unpinCounty, pinnedCountyIds, capex, carbonPrice } = useLumenStore();
   const ciColor = carbonToColor(county.carbonIntensity);
   const timeSeries = useMemo(() => generateTimeSeries(), []);
+  const isPinned = pinnedCountyIds.includes(county.id);
+  const canPin = !isPinned && pinnedCountyIds.length < 3;
 
   // Build capacity bar data from county generation
   const capacityData = useMemo(() => {
@@ -132,24 +263,63 @@ function CountyPanelContent({
               <p className="text-[11px] text-gray-500">FIPS: {county.id} • Regional Metrics</p>
             </div>
           </div>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() =>
+                exportAssessmentPdf(county as any, assessment, techType, { capex, carbonPrice })
+              }
+              title="Download PDF assessment"
+              className="w-7 h-7 rounded-md flex items-center justify-center hover:bg-gray-700/40 transition-colors"
+            >
+              <Download className="w-3.5 h-3.5 text-gray-400" />
+            </button>
+            <button
+              onClick={onClose}
+              className="w-7 h-7 rounded-md flex items-center justify-center hover:bg-gray-700/40 transition-colors"
+            >
+              <X className="w-4 h-4 text-gray-400" />
+            </button>
+          </div>
+        </div>
+        <div className="flex items-center gap-2 mt-2 flex-wrap">
+          {assessment ? (
+            <>
+              <span className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-white/10 text-white border border-white/20">
+                <Sparkles className="w-3 h-3" />
+                AI County Brief
+              </span>
+              <span className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-white/5 text-gray-300 border border-white/10">
+                {techType === "solar" ? "☀️ Solar PV" : "💨 Wind"}
+              </span>
+            </>
+          ) : null}
           <button
-            onClick={onClose}
-            className="w-7 h-7 rounded-md flex items-center justify-center hover:bg-gray-700/40 transition-colors"
+            onClick={() =>
+              isPinned ? unpinCounty(county.id) : pinCounty(county.id, county as any)
+            }
+            disabled={!isPinned && !canPin}
+            title={
+              isPinned
+                ? "Remove from comparison"
+                : canPin
+                  ? "Add to comparison (up to 3)"
+                  : "Max 3 counties pinned"
+            }
+            className={`ml-auto flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium border transition-colors ${
+              isPinned
+                ? "bg-cyan-500/15 text-cyan-300 border-cyan-500/30 hover:bg-cyan-500/25"
+                : canPin
+                  ? "bg-white/5 text-gray-400 border-white/10 hover:bg-white/10 hover:text-white"
+                  : "opacity-40 cursor-not-allowed bg-white/5 text-gray-600 border-white/10"
+            }`}
           >
-            <X className="w-4 h-4 text-gray-400" />
+            {isPinned ? (
+              <><PinOff className="w-3 h-3" />Pinned</>
+            ) : (
+              <><Pin className="w-3 h-3" />Compare</>
+            )}
           </button>
         </div>
-        {assessment ? (
-          <div className="flex items-center gap-2 mt-2">
-            <span className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-white/10 text-white border border-white/20">
-              <Sparkles className="w-3 h-3" />
-              AI County Brief
-            </span>
-            <span className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-white/5 text-gray-300 border border-white/10">
-              {techType === "solar" ? "â˜€ï¸ Solar PV" : "ðŸ’¨ Wind"}
-            </span>
-          </div>
-        ) : null}
       </div>
 
       <div className="px-5 pb-6 space-y-5">
@@ -212,6 +382,7 @@ function SitePanelContent({
   techType: string;
   onClose: () => void;
 }) {
+  const { capex, carbonPrice } = useLumenStore();
   return (
     <>
       <div className="sticky top-0 z-10 px-5 pt-4 pb-3" style={{ background: "inherit" }}>
@@ -228,12 +399,23 @@ function SitePanelContent({
               </p>
             </div>
           </div>
-          <button
-            onClick={onClose}
-            className="w-7 h-7 rounded-md flex items-center justify-center hover:bg-gray-700/40 transition-colors"
-          >
-            <X className="w-4 h-4 text-gray-400" />
-          </button>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() =>
+                exportAssessmentPdf(null, assessment, techType, { capex, carbonPrice })
+              }
+              title="Download PDF assessment"
+              className="w-7 h-7 rounded-md flex items-center justify-center hover:bg-gray-700/40 transition-colors"
+            >
+              <Download className="w-3.5 h-3.5 text-gray-400" />
+            </button>
+            <button
+              onClick={onClose}
+              className="w-7 h-7 rounded-md flex items-center justify-center hover:bg-gray-700/40 transition-colors"
+            >
+              <X className="w-4 h-4 text-gray-400" />
+            </button>
+          </div>
         </div>
         <div className="flex items-center gap-2 mt-2">
           <span className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-white/10 text-white border border-white/20">

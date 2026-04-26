@@ -22,6 +22,11 @@ interface LumenState {
   timeHour: number;
   isLive: boolean;
 
+  // Scoring weight sliders (0–1, should sum to 1 but are applied as raw multipliers)
+  weightLcoe: number;
+  weightRevenue: number;
+  weightCarbon: number;
+
   // Grid data
   gridCells: GridCell[];
 
@@ -40,6 +45,14 @@ interface LumenState {
   activeQueryText: string;
   queryPending: boolean;
 
+  // County job fetch status
+  countyFetchStatus: "idle" | "loading" | "success" | "error";
+  countyFetchError: string | null;
+
+  // Comparison mode — up to 3 pinned counties
+  pinnedCountyIds: string[];
+  pinnedCounties: Record<string, ZoneData>;
+
   // Left sidebar
   leftSidebarOpen: boolean;
   sidebarTab: "overview" | "carbon" | "mix" | "price";
@@ -55,8 +68,13 @@ interface LumenState {
   setCapex: (c: number) => void;
   setTimeHour: (h: number) => void;
   setIsLive: (live: boolean) => void;
+  setWeights: (w: { weightLcoe?: number; weightRevenue?: number; weightCarbon?: number }) => void;
   selectCell: (cell: GridCell | null) => void;
   fetchCountyData: (fips: string | null, name?: string, stateFips?: string) => Promise<void>;
+  retryCountyFetch: () => Promise<void>;
+  pinCounty: (fips: string, data: ZoneData) => void;
+  unpinCounty: (fips: string) => void;
+  clearPinnedCounties: () => void;
   runNaturalLanguageQuery: (query: string) => Promise<void>;
   clearQueryResults: () => void;
   toggleLeftSidebar: () => void;
@@ -74,7 +92,11 @@ export const useLumenStore = create<LumenState>((set, get) => ({
   timeHour: 14,
   isLive: true,
 
-  gridCells: generateGridCells("solar", 50, 1000),
+  weightLcoe: 1.0,
+  weightRevenue: 1.0,
+  weightCarbon: 1.0,
+
+  gridCells: generateGridCells("solar", 50, 1000, 14, 1.0, 1.0, 1.0),
 
   selectedCell: null,
   siteAssessment: null,
@@ -88,6 +110,12 @@ export const useLumenStore = create<LumenState>((set, get) => ({
   queryMessage: null,
   activeQueryText: "",
   queryPending: false,
+
+  countyFetchStatus: "idle",
+  countyFetchError: null,
+
+  pinnedCountyIds: [],
+  pinnedCounties: {},
 
   leftSidebarOpen: true,
   sidebarTab: "overview",
@@ -108,8 +136,15 @@ export const useLumenStore = create<LumenState>((set, get) => ({
     set({ capex: c });
     get().recalculate();
   },
-  setTimeHour: (h) => set({ timeHour: h }),
+  setTimeHour: (h) => {
+    set({ timeHour: h });
+    get().recalculate();
+  },
   setIsLive: (live) => set({ isLive: live }),
+  setWeights: (w) => {
+    set(w);
+    get().recalculate();
+  },
 
   selectCell: (cell) => {
     if (cell) {
@@ -135,16 +170,20 @@ export const useLumenStore = create<LumenState>((set, get) => ({
         selectedCounty: null,
         siteAssessment: null,
         rightPanelOpen: false,
+        countyFetchStatus: "idle",
+        countyFetchError: null,
       });
       return;
     }
 
-    // Optimistically open panel and clear old data
+    // Open panel immediately with loading state
     set({
       selectedCountyId: fips,
       selectedCounty: null,
       siteAssessment: null,
       rightPanelOpen: true,
+      countyFetchStatus: "loading",
+      countyFetchError: null,
     });
 
     try {
@@ -221,11 +260,48 @@ export const useLumenStore = create<LumenState>((set, get) => ({
       set({
         selectedCounty: countyData as any,
         siteAssessment: assessment,
+        countyFetchStatus: "success",
+        countyFetchError: null,
       });
     } catch (error) {
+      const msg =
+        error instanceof Error ? error.message : "Unknown error fetching county data.";
       console.error("Failed to fetch county data:", error);
+      set({
+        countyFetchStatus: "error",
+        countyFetchError: msg,
+      });
     }
   },
+
+  retryCountyFetch: async () => {
+    const { selectedCountyId, fetchCountyData } = get();
+    if (selectedCountyId) {
+      await fetchCountyData(selectedCountyId);
+    }
+  },
+
+  pinCounty: (fips, data) => {
+    const { pinnedCountyIds, pinnedCounties } = get();
+    if (pinnedCountyIds.includes(fips)) return; // already pinned
+    if (pinnedCountyIds.length >= 3) return;     // max 3
+    set({
+      pinnedCountyIds: [...pinnedCountyIds, fips],
+      pinnedCounties: { ...pinnedCounties, [fips]: data },
+    });
+  },
+
+  unpinCounty: (fips) => {
+    const { pinnedCountyIds, pinnedCounties } = get();
+    const next = { ...pinnedCounties };
+    delete next[fips];
+    set({
+      pinnedCountyIds: pinnedCountyIds.filter((id) => id !== fips),
+      pinnedCounties: next,
+    });
+  },
+
+  clearPinnedCounties: () => set({ pinnedCountyIds: [], pinnedCounties: {} }),
 
   runNaturalLanguageQuery: async (query) => {
     const trimmed = query.trim();
@@ -295,7 +371,7 @@ export const useLumenStore = create<LumenState>((set, get) => ({
   toggleZones: () => set((s) => ({ showZones: !s.showZones })),
 
   recalculate: () => {
-    const { techType, carbonPrice, capex } = get();
-    set({ gridCells: generateGridCells(techType, carbonPrice, capex) });
+    const { techType, carbonPrice, capex, timeHour, weightLcoe, weightRevenue, weightCarbon } = get();
+    set({ gridCells: generateGridCells(techType, carbonPrice, capex, timeHour, weightLcoe, weightRevenue, weightCarbon) });
   },
 }));

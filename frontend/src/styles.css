@@ -89,6 +89,23 @@
   border: 1px solid rgba(255, 255, 255, 0.08);
 }
 
+/* ── PDF / Print export ─────────────────────────────────── */
+@media print {
+  /* Hide everything except the print-only assessment card */
+  body > * { display: none !important; }
+  #lumen-print-root { display: block !important; }
+}
+
+#lumen-print-root {
+  display: none;
+  font-family: "Inter", sans-serif;
+  background: #fff;
+  color: #111;
+  padding: 40px;
+  max-width: 720px;
+  margin: 0 auto;
+}
+
 /* ── Recharts dark overrides ────────────────────────────── */
 .recharts-cartesian-grid-horizontal line,
 .recharts-cartesian-grid-vertical line {

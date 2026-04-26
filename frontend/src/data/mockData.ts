@@ -68,11 +68,41 @@ function seededRandom(seed: number): () => number {
   };
 }
 
+/**
+ * Diurnal price multiplier for grid cells — same logic as zones.ts diurnalFactors
+ * but kept local to avoid cross-importing the full zones module.
+ */
+function gridDiurnalPriceMultiplier(hour: number, techType: "solar" | "wind"): number {
+  const h = ((hour % 24) + 24) % 24;
+  if (techType === "solar") {
+    const solarGen = Math.max(0, Math.sin(((h - 6) * Math.PI) / 12));
+    return 1 + 0.35 * (1 - solarGen) - 0.15 * solarGen;
+  }
+  const windBoost = 0.5 + 0.5 * Math.cos(((h - 14) * Math.PI) / 12);
+  const loadPressure = 0.4 + 0.3 * Math.sin(((h - 8) * Math.PI) / 10);
+  return 1 + 0.2 * loadPressure - 0.12 * windBoost;
+}
+
+function gridDiurnalCarbonMultiplier(hour: number, techType: "solar" | "wind"): number {
+  const h = ((hour % 24) + 24) % 24;
+  if (techType === "solar") {
+    const solarGen = Math.max(0, Math.sin(((h - 6) * Math.PI) / 12));
+    return 1 + 0.3 * (1 - solarGen);
+  }
+  const windBoost = 0.5 + 0.5 * Math.cos(((h - 14) * Math.PI) / 12);
+  const loadPressure = 0.4 + 0.3 * Math.sin(((h - 8) * Math.PI) / 10);
+  return 1 + 0.2 * loadPressure - 0.1 * windBoost;
+}
+
 // ── Generate Grid Cells (US focused) ───────────────────
 export function generateGridCells(
   techType: "solar" | "wind" = "solar",
   carbonPrice: number = 50,
-  capex: number = 1000
+  capex: number = 1000,
+  timeHour: number = 12,
+  weightLcoe: number = 1,
+  weightRevenue: number = 1,
+  weightCarbon: number = 1,
 ): GridCell[] {
   const cells: GridCell[] = [];
   const rand = seededRandom(42);
@@ -109,12 +139,21 @@ export function generateGridCells(
       const carbonBase = lon < -105 ? 280 : lon < -90 ? 420 : 380;
       const carbonIntensity = carbonBase + rand() * 120 - 60;
 
-      const revenue = baseCF * 8760 * basePrice / 1000;
-      const carbonValue = baseCF * 8760 * carbonIntensity / 1e6 * carbonPrice;
+      // Apply hour-of-day modulation to price and carbon (makes the surface animate)
+      const priceMult = gridDiurnalPriceMultiplier(timeHour, techType);
+      const carbonMult = gridDiurnalCarbonMultiplier(timeHour, techType);
+      const hourPrice = basePrice * priceMult;
+      const hourCarbon = carbonIntensity * carbonMult;
 
-      // Composite cost score: lower = better
+      const revenue = baseCF * 8760 * hourPrice / 1000;
+      const carbonValue = baseCF * 8760 * hourCarbon / 1e6 * carbonPrice;
+
+      // Composite cost score: lower = better (weights applied)
       const costScore = Math.max(0, Math.min(100,
-        (lcoe / 80 * 40) - (revenue / 300 * 20) - (carbonValue / 50 * 15) + rand() * 25
+        weightLcoe * (lcoe / 80 * 40)
+        - weightRevenue * (revenue / 300 * 20)
+        - weightCarbon * (carbonValue / 50 * 15)
+        + rand() * 25
       ));
 
       const regions = [
@@ -136,11 +175,11 @@ export function generateGridCells(
         lat,
         lon,
         costScore,
-        carbonIntensity,
+        carbonIntensity: Math.round(hourCarbon),
         capacityFactor: baseCF,
         lcoe,
         revenue,
-        avgPrice: basePrice,
+        avgPrice: Math.round(hourPrice),
         nearestTransmissionKm: 5 + rand() * 80,
         region: region?.name ?? "Other",
         zone: region?.zone ?? "US-OTHER",

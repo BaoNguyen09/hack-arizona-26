@@ -5,7 +5,6 @@ import {
   Zap,
   Leaf,
   BarChart3,
-  ArrowRightLeft,
   TrendingUp,
   DollarSign,
   ChevronLeft,
@@ -13,6 +12,7 @@ import {
   Clock,
   Info,
   ExternalLink,
+  SlidersHorizontal,
 } from "lucide-react";
 import { useLumenStore } from "../store/useLumenStore";
 import { AnimatedNumber } from "./AnimatedNumber";
@@ -44,6 +44,10 @@ export function LeftSidebar() {
     isLive,
     setIsLive,
     timeHour,
+    weightLcoe,
+    weightRevenue,
+    weightCarbon,
+    setWeights,
   } = useLumenStore();
 
   const timeSeries = useMemo(() => generateTimeSeries(), []);
@@ -232,6 +236,35 @@ export function LeftSidebar() {
               </AnimatePresence>
             </div>
 
+            {/* ── Scoring Weights ─────────────────────── */}
+            <div className="px-4 py-3 border-t border-gray-800/60 space-y-2.5">
+              <div className="flex items-center gap-1.5 mb-1">
+                <SlidersHorizontal className="w-3 h-3 text-gray-500" />
+                <span className="text-[10px] font-medium text-gray-400 uppercase tracking-wider">
+                  Scoring Weights
+                </span>
+              </div>
+
+              <WeightSlider
+                label="LCOE"
+                value={weightLcoe}
+                onChange={(v) => setWeights({ weightLcoe: v })}
+                color="#3b82f6"
+              />
+              <WeightSlider
+                label="Revenue"
+                value={weightRevenue}
+                onChange={(v) => setWeights({ weightRevenue: v })}
+                color="#10b981"
+              />
+              <WeightSlider
+                label="Carbon"
+                value={weightCarbon}
+                onChange={(v) => setWeights({ weightCarbon: v })}
+                color="#f59e0b"
+              />
+            </div>
+
             {/* ── Footer ─────────────────────────────── */}
             <div className="px-4 py-3 border-t border-gray-800/60">
               <button className="flex items-center gap-1.5 text-[11px] text-gray-500 hover:text-gray-400 transition-colors">
@@ -394,6 +427,41 @@ function Section({
         </h3>
       </div>
       {children}
+    </div>
+  );
+}
+
+// ── Weight Slider ──────────────────────────────────────
+function WeightSlider({
+  label,
+  value,
+  onChange,
+  color,
+}: {
+  label: string;
+  value: number;
+  onChange: (v: number) => void;
+  color: string;
+}) {
+  return (
+    <div className="flex items-center gap-2">
+      <span className="text-[10px] text-gray-400 w-14 flex-shrink-0">{label}</span>
+      <input
+        type="range"
+        min={0}
+        max={2}
+        step={0.1}
+        value={value}
+        onChange={(e) => onChange(Number(e.target.value))}
+        className="flex-1"
+        style={{ accentColor: color }}
+      />
+      <span
+        className="text-[10px] font-medium tabular-nums w-6 text-right flex-shrink-0"
+        style={{ color }}
+      >
+        {value.toFixed(1)}
+      </span>
     </div>
   );
 }

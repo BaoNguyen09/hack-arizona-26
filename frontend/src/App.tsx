@@ -3,6 +3,7 @@ import { LeftSidebar } from "./components/LeftSidebar";
 import { MapView } from "./components/MapView";
 import { RightPanel } from "./components/RightPanel";
 import { TimeSlider } from "./components/TimeSlider";
+import { ComparisonPanel } from "./components/ComparisonPanel";
 
 export function App() {
   return (
@@ -14,6 +15,7 @@ export function App() {
       <TopBar />
       <LeftSidebar />
       <RightPanel />
+      <ComparisonPanel />
       <TimeSlider />
     </div>
   );

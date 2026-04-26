@@ -41,6 +41,11 @@ export function MapView() {
     techType,
     capex,
     carbonPrice,
+    timeHour,
+    pinnedCountyIds,
+    weightLcoe,
+    weightRevenue,
+    weightCarbon,
   } = useLumenStore();
 
   useEffect(() => {
@@ -105,12 +110,13 @@ export function MapView() {
       rawCountyGeoJSONRef.current = countiesData;
 
       // Initial enhancement with current scenario
-      const { techType: tech, capex: cpx, carbonPrice: cp } = useLumenStore.getState();
+      const { techType: tech, capex: cpx, carbonPrice: cp, timeHour: th } = useLumenStore.getState();
       const enhancedCounties = enhanceCountyGeoJSON(countiesData, {
         techType: tech,
         capex: cpx,
         carbonPrice: cp,
         colorMode: "cost",
+        timeHour: th,
       });
 
       // Add States source
@@ -135,6 +141,8 @@ export function MapView() {
           paint: {
             "fill-color": ["get", "color"],
             "fill-opacity": 0.7,
+            "fill-color-transition": { duration: 400, delay: 0 },
+            "fill-opacity-transition": { duration: 400, delay: 0 },
           },
         });
 
@@ -188,6 +196,30 @@ export function MapView() {
             "line-color": "#ffffff",
             "line-width": 0,
             "line-opacity": 0,
+          },
+          filter: ["==", "id", ""],
+        });
+
+        // Pinned-county comparison highlight layers
+        map.addLayer({
+          id: "counties-pinned-fill",
+          type: "fill",
+          source: "counties",
+          paint: {
+            "fill-color": "#22d3ee",
+            "fill-opacity": 0.08,
+          },
+          filter: ["==", "id", ""],
+        });
+
+        map.addLayer({
+          id: "counties-pinned-line",
+          type: "line",
+          source: "counties",
+          paint: {
+            "line-color": "#22d3ee",
+            "line-width": 2,
+            "line-opacity": 0.8,
           },
           filter: ["==", "id", ""],
         });
@@ -267,6 +299,20 @@ export function MapView() {
     }
   }, [matchedCountyFips, mapLoaded]);
 
+  // ── Update pinned county highlight filter ──────────
+  useEffect(() => {
+    if (!mapRef.current || !mapLoaded) return;
+    const map = mapRef.current;
+    const filter = createCountyFilter(pinnedCountyIds);
+
+    if (map.getLayer("counties-pinned-fill")) {
+      map.setFilter("counties-pinned-fill", filter);
+    }
+    if (map.getLayer("counties-pinned-line")) {
+      map.setFilter("counties-pinned-line", filter);
+    }
+  }, [pinnedCountyIds, mapLoaded]);
+
   useEffect(() => {
     if (!mapRef.current || !mapLoaded || matchedCountyFips.length === 0) return;
     const map = mapRef.current;
@@ -319,9 +365,13 @@ export function MapView() {
       capex,
       carbonPrice,
       colorMode: "cost",
+      timeHour,
+      weightLcoe,
+      weightRevenue,
+      weightCarbon,
     });
     source.setData(enhanced as any);
-  }, [techType, capex, carbonPrice, mapLoaded, countiesLayerReady]);
+  }, [techType, capex, carbonPrice, timeHour, weightLcoe, weightRevenue, weightCarbon, mapLoaded, countiesLayerReady]);
 
   // ── Zone visibility toggle ─────────────────────────
   useEffect(() => {
@@ -335,6 +385,8 @@ export function MapView() {
       "counties-hover",
       "counties-query-match-fill",
       "counties-query-match-line",
+      "counties-pinned-fill",
+      "counties-pinned-line",
     ].forEach((id) => {
       if (map.getLayer(id)) map.setLayoutProperty(id, "visibility", vis);
     });
@@ -379,7 +431,11 @@ export function MapView() {
         id: "grid-cells-fill",
         type: "fill",
         source: "grid-cells",
-        paint: { "fill-color": ["get", "color"], "fill-opacity": 0.4 },
+        paint: {
+          "fill-color": ["get", "color"],
+          "fill-opacity": 0.4,
+          "fill-color-transition": { duration: 400, delay: 0 },
+        },
       });
       map.addLayer({
         id: "grid-cells-line",
