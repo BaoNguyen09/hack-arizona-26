@@ -252,10 +252,30 @@ class QueryFilters(BaseModel):
     max_transmission_km: float | None = Field(
         default=None, ge=0, description="Maximum transmission distance in km"
     )
+    top_n: int | None = Field(
+        default=None, ge=1, le=100, description="Return only the top-N results by composite score"
+    )
+    sort_by: str | None = Field(
+        default=None,
+        description="Sort results by: composite_score, lcoe, carbon_intensity, renewable_percent",
+    )
 
     def has_any_value(self) -> bool:
         """Return True when at least one filter was extracted."""
         return any(value is not None for value in self.model_dump().values())
+
+
+class QuerySummaryStats(BaseModel):
+    """Aggregate statistics for a query result set."""
+
+    mean_lcoe: float | None = None
+    min_lcoe: float | None = None
+    max_lcoe: float | None = None
+    mean_carbon_intensity: float | None = None
+    mean_renewable_percent: float | None = None
+    best_county_fips: str | None = None
+    best_county_name: str | None = None
+    best_composite_score: float | None = None
 
 
 class QueryResponse(BaseModel):
@@ -281,6 +301,9 @@ class QueryResponse(BaseModel):
     )
     matched_county_count: int = Field(
         default=0, description="Number of matched counties"
+    )
+    summary: QuerySummaryStats | None = Field(
+        default=None, description="Aggregate statistics for matched results"
     )
 
 

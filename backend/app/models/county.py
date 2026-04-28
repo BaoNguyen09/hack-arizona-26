@@ -9,6 +9,7 @@ import pandas as pd
 
 from backend.app.data.contracts import validate_county_artifact
 from backend.app.data.county_store import generate_county_data
+from backend.app.data.processed_store import get_store
 from backend.app.engine.scoring import score_single_cell
 from backend.app.models.base import BaseModelStep
 from backend.app.schemas.scenario import ScenarioRequest, SiteMetrics, SiteResponse
@@ -21,10 +22,29 @@ class SimulatedCountyModel(BaseModelStep):
     version = "1.0.0"
 
     def run(self, payload: dict[str, Any]) -> pd.Series:
-        """Generate a county row matching the processed county contract."""
+        """Return a county row matching the processed county contract.
+
+        Prefers the SQLite-backed processed store (real centroids + ingested features)
+        when available; falls back to deterministic generation otherwise.
+        """
         fips = str(payload["fips_code"])
         technology = str(payload.get("technology", "solar"))
+        cell_id = f"county_{fips}"
+
+        store = get_store()
+        if store.is_loaded():
+            existing = store.get_cell_by_id(cell_id)
+            if existing is not None:
+                row_dict = dict(existing)
+                row_dict["cell_id"] = cell_id
+                row_dict["fips"] = fips
+                df = pd.DataFrame([row_dict])
+                validation = validate_county_artifact(df)
+                if validation["valid"]:
+                    return df.iloc[0].copy()
+
         row = generate_county_data(fips, technology)
+        row["cell_id"] = cell_id
         row["fips"] = fips
 
         df = pd.DataFrame([row])

@@ -18,6 +18,7 @@ from backend.app.engine.scoring import score_all_cells
 from backend.app.schemas.scenario import (
     QueryFilters,
     QueryResponse,
+    QuerySummaryStats,
     ScenarioRequest,
 )
 
@@ -164,12 +165,16 @@ def run_query(query: str) -> QueryResponse:
 
     effective_technology = filters.technology or "solar"
     matched_cell_ids = _filter_scored_cells(filters, effective_technology)
-    matched_county_fips = _filter_counties(filters, effective_technology)
+    matched_county_fips, summary = _filter_counties(filters, effective_technology)
 
     if matched_cell_ids or matched_county_fips:
+        county_word = "county" if len(matched_county_fips) == 1 else "counties"
+        best_note = ""
+        if summary and summary.best_county_name:
+            best_note = f" Best match: {summary.best_county_name}."
         message = (
-            f"Parsed {len(_non_null_filter_values(filters))} filters and found "
-            f"{len(matched_county_fips)} matching counties."
+            f"Found {len(matched_county_fips)} matching {county_word} "
+            f"across {len(_non_null_filter_values(filters))} filters.{best_note}"
         )
     else:
         message = "I parsed the query, but no counties matched those filters."
@@ -183,6 +188,7 @@ def run_query(query: str) -> QueryResponse:
         matched_county_fips=matched_county_fips,
         matched_cell_count=len(matched_cell_ids),
         matched_county_count=len(matched_county_fips),
+        summary=summary,
     )
 
 
@@ -375,6 +381,41 @@ def _extract_filters_with_fallback(query: str) -> QueryFilters:
     if max_transmission is not None:
         parsed["max_transmission_km"] = max_transmission
 
+    # ── Top-N / ranking queries ("top 10", "best 5", "cheapest 20") ──
+    top_match = re.search(
+        r"(?:top|best|cheapest|lowest|highest|worst)\s+(\d+)", lowered
+    )
+    if top_match:
+        parsed["top_n"] = int(top_match.group(1))
+
+    # ── Sort preference ("sort by lcoe", "ranked by carbon") ──
+    sort_match = re.search(
+        r"(?:sort|rank|order)(?:ed)?\s+by\s+(\w+)", lowered
+    )
+    if sort_match:
+        sort_key = sort_match.group(1).lower()
+        sort_map = {
+            "lcoe": "lcoe",
+            "cost": "lcoe",
+            "carbon": "carbon_intensity",
+            "renewable": "renewable_percent",
+            "price": "price",
+            "score": "composite_score",
+        }
+        parsed["sort_by"] = sort_map.get(sort_key, "composite_score")
+
+    # Infer sort for comparative queries
+    if "cheapest" in lowered or "lowest cost" in lowered:
+        parsed.setdefault("sort_by", "lcoe")
+    elif "cleanest" in lowered or "lowest carbon" in lowered or "greenest" in lowered:
+        parsed.setdefault("sort_by", "carbon_intensity")
+    elif "most renewable" in lowered or "highest renewable" in lowered:
+        parsed.setdefault("sort_by", "renewable_percent")
+
+    # If top_n specified but no other filters, add a default tech so has_any_value passes
+    if parsed.get("top_n") and len(parsed) == 1:
+        parsed["technology"] = "solar"
+
     return _normalize_filters(parsed) or QueryFilters()
 
 
@@ -457,13 +498,46 @@ def _filter_scored_cells(
 def _filter_counties(
     filters: QueryFilters,
     effective_technology: str,
-) -> list[str]:
+) -> tuple[list[str], QuerySummaryStats | None]:
     """Apply extracted filters to the county dataset used by the frontend."""
     county_df = get_county_index()
     scenario = ScenarioRequest(technology=effective_technology)
     scored_df = score_all_cells(county_df, scenario)
     filtered_df = _apply_filters(scored_df, filters)
-    return filtered_df["fips"].astype(str).tolist()
+
+    # Apply sort_by if specified
+    sort_col_map = {
+        "lcoe": "lcoe_usd_per_mwh",
+        "carbon_intensity": "carbon_g_per_kwh_mean",
+        "renewable_percent": "renewable_percent",
+        "price": "price_usd_per_mwh_mean",
+        "composite_score": "composite_score",
+    }
+    sort_col = sort_col_map.get(filters.sort_by or "", "composite_score")
+    ascending = sort_col != "renewable_percent"  # higher renewable is better
+    if sort_col in filtered_df.columns:
+        filtered_df = filtered_df.sort_values(sort_col, ascending=ascending)
+
+    # Apply top_n limit
+    if filters.top_n and len(filtered_df) > filters.top_n:
+        filtered_df = filtered_df.head(filters.top_n)
+
+    # Build summary statistics
+    summary = None
+    if not filtered_df.empty:
+        best = filtered_df.iloc[0]
+        summary = QuerySummaryStats(
+            mean_lcoe=float(filtered_df["lcoe_usd_per_mwh"].mean()),
+            min_lcoe=float(filtered_df["lcoe_usd_per_mwh"].min()),
+            max_lcoe=float(filtered_df["lcoe_usd_per_mwh"].max()),
+            mean_carbon_intensity=float(filtered_df["carbon_g_per_kwh_mean"].mean()),
+            mean_renewable_percent=float(filtered_df["renewable_percent"].mean()) if "renewable_percent" in filtered_df else None,
+            best_county_fips=str(best.get("fips", "")),
+            best_county_name=str(best.get("county_name", "")) + ", " + str(best.get("state_abbr", "")),
+            best_composite_score=float(best.get("composite_score", 0)),
+        )
+
+    return filtered_df["fips"].astype(str).tolist(), summary
 
 
 def _apply_filters(df: pd.DataFrame, filters: QueryFilters) -> pd.DataFrame:

@@ -86,8 +86,42 @@ def load_as_scoring_dataframe(dataset_path: Path | str = DEFAULT_DATASET_PATH):
     except ImportError as exc:
         raise RuntimeError("pandas is required") from exc
 
+    raw = pd.read_csv(Path(dataset_path))
+
+    # Newer pipelines may export a scoring-ready CSV directly (already using the
+    # processed store column names). Detect and pass-through in that case.
+    scoring_cols = {
+        "cell_id",
+        "lat",
+        "lon",
+        "solar_cf_mean",
+        "wind_cf_mean",
+        "price_usd_per_mwh_mean",
+        "carbon_g_per_kwh_mean",
+    }
+    if scoring_cols.issubset(set(raw.columns)):
+        keep = [
+            "cell_id",
+            "lat",
+            "lon",
+            "solar_cf_mean",
+            "wind_cf_mean",
+            "price_usd_per_mwh_mean",
+            "carbon_g_per_kwh_mean",
+        ]
+        for optional in ("nearest_transmission_km", "price_hub_id", "grid_zone_id"):
+            if optional in raw.columns:
+                keep.append(optional)
+        result = raw.loc[:, keep].copy()
+        # Ensure optional columns exist for the scoring/services layer.
+        for optional in ("nearest_transmission_km", "price_hub_id", "grid_zone_id"):
+            if optional not in result.columns:
+                result[optional] = None
+        return result
+
+    # Legacy demo CSV format (client-side dataset contract).
     frame = load_processed_cells_frame(dataset_path)
-    result = pd.DataFrame(
+    return pd.DataFrame(
         {
             "cell_id": frame["cell_id"],
             "lat": frame["lat"],
@@ -102,7 +136,6 @@ def load_as_scoring_dataframe(dataset_path: Path | str = DEFAULT_DATASET_PATH):
             "grid_zone_id": frame["electricity_maps_zone_id"],
         }
     )
-    return result
 
 
 def load_processed_cells_frame(dataset_path: Path | str = DEFAULT_DATASET_PATH):

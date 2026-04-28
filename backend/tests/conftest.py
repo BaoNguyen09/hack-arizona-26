@@ -13,6 +13,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 from backend.app.data.processed_store import ProcessedStore
+from backend.app.data.sqlite_store import SqliteProcessedStore
+from backend.app.db.schema import init_db
 from backend.app.main import app
 
 # ---------------------------------------------------------------------------
@@ -38,9 +40,11 @@ def reset_store():
     from backend.app.core.perf import heatmap_cache  # noqa: PLC0415
 
     ProcessedStore._instance = None
+    SqliteProcessedStore._instance = None
     heatmap_cache.clear()
     yield
     ProcessedStore._instance = None
+    SqliteProcessedStore._instance = None
     heatmap_cache.clear()
 
 
@@ -76,4 +80,59 @@ def loaded_client(loaded_store: ProcessedStore) -> TestClient:
     FileNotFoundError (no .gpkg file exists) which is silently caught in
     ``main.py``, leaving our pre-populated singleton intact.
     """
+    return TestClient(app)
+
+
+@pytest.fixture()
+def sqlite_county_client(tmp_path: "pytest.TempPathFactory", monkeypatch: pytest.MonkeyPatch) -> TestClient:  # type: ignore[name-defined]
+    """TestClient backed by a minimal SQLite DB containing one county row."""
+    from backend.app.core.config import settings  # noqa: PLC0415
+    from backend.app.db.schema import connect  # noqa: PLC0415
+
+    db_path = tmp_path / "lumen.sqlite3"  # type: ignore[operator]
+    init_db(db_path)
+
+    # Create a minimal snapshot with one county. Use Los Angeles County (06037).
+    snapshot_id = "test_snapshot"
+    with connect(db_path) as conn:
+        conn.execute(
+            """
+            INSERT OR REPLACE INTO feature_snapshots(snapshot_id, created_at, source, notes)
+            VALUES(?, ?, ?, ?)
+            """,
+            (snapshot_id, "2026-01-01T00:00:00Z", "test", "pytest seed"),
+        )
+        conn.execute(
+            """
+            INSERT OR REPLACE INTO spatial_units(spatial_unit_id, unit_type, fips, name, lat, lon)
+            VALUES(?, 'county', ?, ?, ?, ?)
+            """,
+            ("county_06037", "06037", "Los Angeles", 34.196398, -118.261861),
+        )
+        conn.execute(
+            """
+            INSERT OR REPLACE INTO spatial_unit_features(
+                snapshot_id, spatial_unit_id,
+                solar_cf_mean, wind_cf_mean,
+                price_usd_per_mwh_mean, carbon_g_per_kwh_mean,
+                nearest_transmission_km, price_hub_id, grid_zone_id, load_gw, renewable_percent
+            ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                snapshot_id,
+                "county_06037",
+                0.25,
+                0.30,
+                45.0,
+                200.0,
+                10.0,
+                "EIA_STATE_CA",
+                "CAMX",
+                1.0,
+                40.0,
+            ),
+        )
+
+    monkeypatch.setattr(settings, "use_sqlite_db", True)
+    monkeypatch.setattr(settings, "lumen_db_path", str(db_path))
     return TestClient(app)

@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Activity,
@@ -13,13 +13,18 @@ import {
   Info,
   ExternalLink,
   SlidersHorizontal,
+  Wind,
+  Sun,
+  Droplets,
+  Flame,
+  Atom,
 } from "lucide-react";
 import { useLumenStore } from "../store/useLumenStore";
 import { AnimatedNumber } from "./AnimatedNumber";
 import {
-  generateTimeSeries,
   installedCapacity,
 } from "../data/mockData";
+import { generateFallbackConusSeries } from "../lib/timeseries";
 import {
   CarbonIntensityChart,
   ElectricityMixChart,
@@ -44,16 +49,53 @@ export function LeftSidebar() {
     isLive,
     setIsLive,
     timeHour,
+    setTimeHour,
     weightLcoe,
     weightRevenue,
     weightCarbon,
     setWeights,
+    capex,
+    carbonPrice,
+    techType,
   } = useLumenStore();
 
-  const timeSeries = useMemo(() => generateTimeSeries(), []);
+  const timeSeries = useMemo(() => generateFallbackConusSeries(42), []);
 
-  // Current metrics from time series at selected hour
-  const currentData = timeSeries[timeHour] || timeSeries[14];
+  // 60fps continuous data interpolation for smooth sidebar metrics
+  const currentData = useMemo(() => {
+    const h0 = Math.floor(timeHour);
+    const h1 = (h0 + 1) % 24;
+    const frac = timeHour - h0;
+    const d0 = timeSeries[h0];
+    const d1 = timeSeries[h1] || timeSeries[0];
+    if (!d0 || !d1) return timeSeries[0];
+    
+    return {
+      hour: timeHour,
+      carbonIntensity: d0.carbonIntensity * (1 - frac) + d1.carbonIntensity * frac,
+      price: d0.price * (1 - frac) + d1.price * frac,
+      solar: d0.solar * (1 - frac) + d1.solar * frac,
+      wind: d0.wind * (1 - frac) + d1.wind * frac,
+      nuclear: d0.nuclear * (1 - frac) + d1.nuclear * frac,
+      hydro: d0.hydro * (1 - frac) + d1.hydro * frac,
+      gas: d0.gas * (1 - frac) + d1.gas * frac,
+      coal: d0.coal * (1 - frac) + d1.coal * frac,
+      load: d0.load * (1 - frac) + d1.load * frac,
+      netFlow: d0.netFlow * (1 - frac) + d1.netFlow * frac,
+    };
+  }, [timeSeries, timeHour]);
+
+  // Forecast playback loop
+  useEffect(() => {
+    let interval: number;
+    if (!isLive) {
+      interval = window.setInterval(() => {
+        const currentHour = useLumenStore.getState().timeHour;
+        setTimeHour((currentHour + 1) % 24);
+      }, 1500); // 1.5 seconds per hour
+    }
+    return () => clearInterval(interval);
+  }, [isLive, setTimeHour]);
 
   const carbonFree = useMemo(() => {
     const clean =
@@ -113,7 +155,7 @@ export function LeftSidebar() {
                 <div className="flex items-center gap-2">
                   <span className="text-lg">🇺🇸</span>
                   <h2 className="text-sm font-semibold text-white">
-                    Lumen Analytics
+                    CONUS Grid
                   </h2>
                 </div>
                 <button
@@ -158,40 +200,21 @@ export function LeftSidebar() {
               </div>
             </div>
 
-            {/* ── Big Metrics ────────────────────────── */}
+            {/* ── Carbon Intensity Gauge (Electricity Maps style) ─── */}
             <div className="px-4 pb-4">
-              <div className="grid grid-cols-3 gap-3 mb-4">
-                <MetricRing
-                  label="Carbon Intensity"
-                  value={currentData.carbonIntensity}
-                  unit="gCO₂eq/kWh"
-                  color={
-                    currentData.carbonIntensity < 200
-                      ? "#10b981"
-                      : currentData.carbonIntensity < 350
-                      ? "#f59e0b"
-                      : "#ef4444"
-                  }
-                  progress={Math.min(100, (currentData.carbonIntensity / 600) * 100)}
-                />
-                <MetricRing
-                  label="Carbon-free"
-                  value={carbonFree}
-                  unit="%"
-                  color="#a1a1aa"
-                  progress={carbonFree}
-                />
-                <MetricRing
-                  label="Renewable"
-                  value={renewable}
-                  unit="%"
-                  color="#fff"
-                  progress={renewable}
-                />
+              <CarbonGauge
+                value={currentData.carbonIntensity}
+                carbonFree={carbonFree}
+                renewable={renewable}
+              />
+
+              {/* ── Power Origin Breakdown (Electricity Maps style) ─── */}
+              <div className="mt-4">
+                <PowerOriginBreakdown currentData={currentData} />
               </div>
 
               {/* ── Tab navigation ───────────────────── */}
-              <div className="flex gap-0.5 mb-4 bg-gray-800/40 rounded-lg p-0.5 border border-gray-700/30">
+              <div className="flex gap-0.5 mb-4 mt-5 bg-gray-800/40 rounded-lg p-0.5 border border-gray-700/30">
                 {tabs.map((tab) => (
                   <button
                     key={tab.id}
@@ -221,6 +244,9 @@ export function LeftSidebar() {
                     <OverviewTab
                       timeSeries={timeSeries}
                       currentData={currentData}
+                      capex={capex}
+                      carbonPrice={carbonPrice}
+                      techType={techType}
                     />
                   )}
                   {sidebarTab === "carbon" && (
@@ -280,63 +306,185 @@ export function LeftSidebar() {
   );
 }
 
-// ── Metric Ring Component ──────────────────────────────
-function MetricRing({
-  label,
+// ── Carbon Intensity Gauge (Electricity Maps-inspired) ──────
+function CarbonGauge({
   value,
-  unit,
-  color,
-  progress,
+  carbonFree,
+  renewable,
 }: {
-  label: string;
   value: number;
-  unit: string;
-  color: string;
-  progress: number;
+  carbonFree: number;
+  renewable: number;
 }) {
-  const radius = 28;
-  const circumference = 2 * Math.PI * radius;
-  const offset = circumference - (progress / 100) * circumference;
+  const gaugeColor =
+    value < 100 ? "#10b981" :
+    value < 200 ? "#84cc16" :
+    value < 350 ? "#f59e0b" :
+    value < 500 ? "#ea580c" : "#ef4444";
+
+  const radius = 60;
+  const cx = 70;
+  const cy = 65;
+
+  const trackPath = `M ${cx - radius} ${cy} A ${radius} ${radius} 0 0 1 ${cx + radius} ${cy}`;
 
   return (
-    <div className="flex flex-col items-center gap-1">
-      <div className="relative w-16 h-16">
-        <svg className="w-16 h-16 -rotate-90" viewBox="0 0 64 64">
-          <circle
-            cx="32"
-            cy="32"
-            r={radius}
+    <div className="flex items-start gap-4">
+      {/* Gauge */}
+      <div className="relative flex-shrink-0 w-[140px] h-[80px]">
+        <svg width="140" height="80" viewBox="0 0 140 80" className="absolute top-0 left-0">
+          {/* Track */}
+          <path
+            d={trackPath}
             fill="none"
-            stroke="rgba(255,255,255,0.05)"
-            strokeWidth="4"
-          />
-          <motion.circle
-            cx="32"
-            cy="32"
-            r={radius}
-            fill="none"
-            stroke={color}
-            strokeWidth="4"
+            stroke="rgba(255,255,255,0.06)"
+            strokeWidth="10"
             strokeLinecap="round"
-            strokeDasharray={circumference}
-            initial={{ strokeDashoffset: circumference }}
-            animate={{ strokeDashoffset: offset }}
-            transition={{ duration: 1, ease: "easeOut" }}
-            style={{ filter: `drop-shadow(0 0 6px ${color}40)` }}
+          />
+          {/* Value */}
+          <motion.path
+            d={trackPath}
+            fill="none"
+            stroke={gaugeColor}
+            strokeWidth="10"
+            strokeLinecap="round"
+            initial={{ pathLength: 0 }}
+            animate={{ pathLength: Math.min(1, value / 600) }}
+            transition={{ type: "spring", bounce: 0, duration: 1 }}
+            style={{ filter: `drop-shadow(0 0 8px ${gaugeColor}50)` }}
           />
         </svg>
-        <div className="absolute inset-0 flex flex-col items-center justify-center">
-          <span className="text-sm font-bold text-white" style={{ color }}>
+        <div className="absolute top-6 left-0 right-0 flex flex-col items-center justify-center">
+          <span className="text-[28px] font-bold tabular-nums leading-none tracking-tight" style={{ color: gaugeColor }}>
             <AnimatedNumber value={value} decimals={0} />
           </span>
+          <p className="text-[9px] text-gray-500 mt-1 uppercase tracking-wider font-medium">gCO₂eq/kWh</p>
         </div>
       </div>
-      <span className="text-[9px] text-gray-400 text-center leading-tight">
-        {unit}
-      </span>
-      <span className="text-[9px] text-gray-500 text-center leading-tight">
-        {label}
-      </span>
+
+      {/* Key metrics */}
+      <div className="flex-1 space-y-2.5 pt-1">
+        <div className="flex items-center justify-between">
+          <span className="text-[10px] text-gray-500 uppercase tracking-wide">Low-carbon</span>
+          <div className="flex items-center gap-1.5">
+            <div className="w-16 h-1.5 bg-gray-800 rounded-full overflow-hidden">
+              <motion.div
+                className="h-full rounded-full"
+                style={{ background: "#10b981" }}
+                initial={{ width: 0 }}
+                animate={{ width: `${carbonFree}%` }}
+                transition={{ duration: 0.8, ease: "easeOut" }}
+              />
+            </div>
+            <span className="text-[11px] font-semibold text-white tabular-nums w-8 text-right">
+              <AnimatedNumber value={carbonFree} decimals={0} suffix="%" />
+            </span>
+          </div>
+        </div>
+        <div className="flex items-center justify-between">
+          <span className="text-[10px] text-gray-500 uppercase tracking-wide">Renewable</span>
+          <div className="flex items-center gap-1.5">
+            <div className="w-16 h-1.5 bg-gray-800 rounded-full overflow-hidden">
+              <motion.div
+                className="h-full rounded-full"
+                style={{ background: "#22d3ee" }}
+                initial={{ width: 0 }}
+                animate={{ width: `${renewable}%` }}
+                transition={{ duration: 0.8, ease: "easeOut", delay: 0.1 }}
+              />
+            </div>
+            <span className="text-[11px] font-semibold text-white tabular-nums w-8 text-right">
+              <AnimatedNumber value={renewable} decimals={0} suffix="%" />
+            </span>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Power Origin Breakdown (Electricity Maps-inspired) ──────
+const SOURCE_CONFIG = [
+  { key: "solar", label: "Solar", icon: Sun, color: "#f59e0b" },
+  { key: "wind", label: "Wind", icon: Wind, color: "#06b6d4" },
+  { key: "hydro", label: "Hydro", icon: Droplets, color: "#3b82f6" },
+  { key: "nuclear", label: "Nuclear", icon: Atom, color: "#8b5cf6" },
+  { key: "gas", label: "Natural Gas", icon: Flame, color: "#6b7280" },
+  { key: "coal", label: "Coal", icon: Flame, color: "#374151" },
+] as const;
+
+function PowerOriginBreakdown({ currentData }: { currentData: any }) {
+  const sources = SOURCE_CONFIG.map((s) => ({
+    ...s,
+    value: currentData[s.key] as number,
+  }));
+  const total = sources.reduce((sum, s) => sum + s.value, 0);
+
+  return (
+    <div>
+      <div className="flex items-center gap-1.5 mb-2.5">
+        <Zap className="w-3 h-3 text-gray-500" />
+        <h3 className="text-[10px] font-medium text-gray-400 uppercase tracking-wider">
+          Power Origin
+        </h3>
+        <span className="ml-auto text-[10px] text-gray-500 tabular-nums">
+          {total.toFixed(1)} GW
+        </span>
+      </div>
+
+      {/* Stacked bar */}
+      <div className="flex h-3 rounded-full overflow-hidden mb-3">
+        {sources.map((s) => (
+          <motion.div
+            key={s.key}
+            className="relative group"
+            style={{ background: s.color }}
+            initial={{ width: 0 }}
+            animate={{ width: `${(s.value / total) * 100}%` }}
+            transition={{ duration: 0.6, ease: "easeOut" }}
+          />
+        ))}
+      </div>
+
+      {/* Source rows */}
+      <div className="space-y-1">
+        {sources.map((s) => {
+          const pct = total > 0 ? (s.value / total) * 100 : 0;
+          const Icon = s.icon;
+          return (
+            <div
+              key={s.key}
+              className="flex items-center gap-2 py-1 px-2 rounded-md hover:bg-white/[0.03] transition-colors group"
+            >
+              <div
+                className="w-5 h-5 rounded flex items-center justify-center flex-shrink-0"
+                style={{ background: `${s.color}20` }}
+              >
+                <Icon className="w-3 h-3" style={{ color: s.color }} />
+              </div>
+              <span className="text-[11px] text-gray-300 flex-1">{s.label}</span>
+              <div className="flex items-center gap-3">
+                {/* Mini bar */}
+                <div className="w-14 h-1 bg-gray-800 rounded-full overflow-hidden">
+                  <motion.div
+                    className="h-full rounded-full"
+                    style={{ background: s.color }}
+                    initial={{ width: 0 }}
+                    animate={{ width: `${pct}%` }}
+                    transition={{ duration: 0.5, ease: "easeOut" }}
+                  />
+                </div>
+                <span className="text-[10px] text-gray-400 tabular-nums w-10 text-right">
+                  {pct.toFixed(1)}%
+                </span>
+                <span className="text-[10px] text-gray-500 tabular-nums w-12 text-right">
+                  {s.value.toFixed(1)} GW
+                </span>
+              </div>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -345,12 +493,46 @@ function MetricRing({
 function OverviewTab({
   timeSeries,
   currentData,
+  capex,
+  carbonPrice,
+  techType,
 }: {
   timeSeries: any[];
   currentData: any;
+  capex: number;
+  carbonPrice: number;
+  techType: string;
 }) {
+  // Compute optimized metrics for the grid using average CONUS characteristics
+  const avgCf = techType === "solar" ? 0.22 : 0.35;
+  const crf = (0.06 * Math.pow(1.06, 25)) / (Math.pow(1.06, 25) - 1);
+  const lcoe = ((capex * crf + 35) / (avgCf * 8760)) * 1000;
+  
+  // A rough composite score based on current data
+  const avgRev = currentData.price * avgCf;
+  const avgCarbonVal = currentData.carbonIntensity * avgCf * carbonPrice * 1e-3;
+  const compositeScore = lcoe - avgRev - avgCarbonVal;
+
   return (
     <div className="space-y-4">
+      {/* Optimized Cost Metrics */}
+      <Section title="Optimized Scenario Cost" icon={DollarSign}>
+        <div className="grid grid-cols-2 gap-2 mt-2">
+          <div className="px-3 py-2 rounded-lg bg-gray-800/40 border border-gray-700/30">
+            <span className="text-[10px] text-gray-500 uppercase tracking-wide">National {techType === "solar" ? "Solar" : "Wind"} LCOE</span>
+            <div className="text-sm font-bold text-white mt-0.5 tabular-nums">
+              ${lcoe.toFixed(1)} <span className="text-[10px] text-gray-500 font-normal">/MWh</span>
+            </div>
+          </div>
+          <div className="px-3 py-2 rounded-lg bg-gray-800/40 border border-gray-700/30">
+            <span className="text-[10px] text-gray-500 uppercase tracking-wide">Composite Score</span>
+            <div className="text-sm font-bold mt-0.5 tabular-nums" style={{ color: compositeScore < 0 ? "#10b981" : "#f59e0b" }}>
+              {compositeScore.toFixed(1)}
+            </div>
+          </div>
+        </div>
+      </Section>
+
       {/* Installed Capacity */}
       <Section title="Installed capacity (GW)" icon={Zap}>
         <CapacityBar data={installedCapacity} />

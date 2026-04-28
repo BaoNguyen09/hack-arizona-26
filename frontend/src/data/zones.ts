@@ -30,10 +30,28 @@ export function carbonToColor(ci: number): string {
   return "#450a0a"; // Extremely Dark Red/Brown
 }
 
-// ── Cost Score → Color (green=cheap, red=expensive) ──────
-// normalizedScore: 0 = cheapest (green), 1 = most expensive (red)
-export function scoreToColor(t: number): string {
+// ── Cost Score → Color (green=cheap, red=expensive for solar; cyan=cheap, purple=expensive for wind) ──────
+// normalizedScore: 0 = cheapest, 1 = most expensive
+export function scoreToColor(t: number, techType: TechType = "solar"): string {
   const clamped = Math.max(0, Math.min(1, t));
+  
+  if (techType === "wind") {
+    if (clamped < 0.33) {
+      const s = clamped / 0.33;
+      // Cyan (34, 211, 238) to Blue (59, 130, 246)
+      return `rgb(${Math.round(34 + s * 25)},${Math.round(211 - s * 81)},${Math.round(238 + s * 8)})`;
+    } else if (clamped < 0.66) {
+      const s = (clamped - 0.33) / 0.33;
+      // Blue (59, 130, 246) to Indigo (99, 102, 241)
+      return `rgb(${Math.round(59 + s * 40)},${Math.round(130 - s * 28)},${Math.round(246 - s * 5)})`;
+    } else {
+      const s = (clamped - 0.66) / 0.34;
+      // Indigo (99, 102, 241) to Purple (147, 51, 234)
+      return `rgb(${Math.round(99 + s * 48)},${Math.round(102 - s * 51)},${Math.round(241 - s * 7)})`;
+    }
+  }
+
+  // Solar (default)
   if (clamped < 0.33) {
     const s = clamped / 0.33;
     return `rgb(${Math.round(34 + s * 211)},${Math.round(197 - s * 39)},${Math.round(94 - s * 83)})`;
@@ -237,6 +255,16 @@ export interface EnhanceOptions {
   weightLcoe?: number;
   weightRevenue?: number;
   weightCarbon?: number;
+  countyMetricsByFips?: Record<
+    string,
+    {
+      score: number;
+      raw_capacity_factor: number;
+      raw_lcoe_usd_per_mwh: number;
+      raw_revenue_usd_per_mwh: number;
+      raw_carbon_value_usd_per_mwh: number;
+    }
+  >;
 }
 
 /**
@@ -259,7 +287,82 @@ export function enhanceCountyGeoJSON(
     weightLcoe = 1,
     weightRevenue = 1,
     weightCarbon = 1,
+    countyMetricsByFips,
   } = options;
+
+  // If we have real backend-scored county metrics, prefer them for cost coloring.
+  if (colorMode === "cost" && countyMetricsByFips) {
+    const metrics: Array<{
+      fips: string;
+      score: number;
+      cf: number;
+      lcoe: number;
+      price: number;
+      carbonIntensity: number;
+    }> = [];
+
+    for (const f of geojson.features) {
+      const fips = (f.id as string) || f.properties?.id || "00000";
+      const m = countyMetricsByFips[fips];
+      if (!m) continue;
+
+      const price = Number(m.raw_revenue_usd_per_mwh);
+      const carbonValue = Number(m.raw_carbon_value_usd_per_mwh);
+      const carbonIntensity =
+        carbonPrice > 0 ? Math.max(0, (carbonValue * 1000) / carbonPrice) : 0;
+
+      metrics.push({
+        fips,
+        score: Number(m.score),
+        cf: Number(m.raw_capacity_factor),
+        lcoe: Number(m.raw_lcoe_usd_per_mwh),
+        price,
+        carbonIntensity,
+      });
+    }
+
+    const scores = metrics.map((m) => m.score).sort((a, b) => a - b);
+    const p5 = percentile(scores, 0.05);
+    const p95 = percentile(scores, 0.95);
+    const range = p95 - p5 || 1;
+
+    const byFips: Record<string, (typeof metrics)[number]> = {};
+    for (const m of metrics) byFips[m.fips] = m;
+
+    const features = geojson.features.map((f) => {
+      const fips = (f.id as string) || f.properties?.id || "00000";
+      const name = f.properties?.NAME || f.properties?.name || "Unknown County";
+      const stateFips = f.properties?.STATE || fips.substring(0, 2);
+      const county = getCounty(fips, name, stateFips);
+
+      const m = byFips[fips];
+      const score = m ? m.score : 0;
+      const normalizedScore = m
+        ? Math.max(0, Math.min(1, (score - p5) / range))
+        : 0;
+
+      return {
+        ...f,
+        id: fips,
+        properties: {
+          ...f.properties,
+          id: county.id,
+          name: county.name,
+          state: county.state,
+          shortName: `${county.name}, ${county.state}`,
+          color: scoreToColor(normalizedScore, techType),
+          carbonIntensity: m ? Math.round(m.carbonIntensity) : county.carbonIntensity,
+          lcoe: m ? Math.round(m.lcoe) : county.lcoe,
+          renewablePercent: county.renewablePercent,
+          price: m ? Math.round(m.price) : county.price,
+          capacityFactor: m ? Math.round(m.cf * 1000) / 1000 : Math.round((techType === "solar" ? county.solarCF : county.windCF) * 1000) / 1000,
+          costScore: m ? Math.round(m.score * 10) / 10 : 0,
+        },
+      };
+    });
+
+    return { ...geojson, features };
+  }
 
   // First pass: compute raw scores for all counties to normalize
   const counties: ZoneData[] = [];
@@ -310,7 +413,7 @@ export function enhanceCountyGeoJSON(
           name: county.name,
           state: county.state,
           shortName: `${county.name}, ${county.state}`,
-          color: scoreToColor(normalizedScore),
+          color: scoreToColor(normalizedScore, techType),
           carbonIntensity: displayCarbon,
           lcoe: Math.round(lcoe),
           renewablePercent: county.renewablePercent,

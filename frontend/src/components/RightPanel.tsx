@@ -27,7 +27,7 @@ import {
   CapacityBar,
 } from "./Charts";
 import { carbonToColor } from "../data/zones";
-import { generateTimeSeries } from "../data/mockData";
+import { generateFallbackConusSeries } from "../lib/timeseries";
 
 export function RightPanel() {
   const {
@@ -35,7 +35,6 @@ export function RightPanel() {
     siteAssessment,
     selectedCounty,
     selectedCountyId,
-    selectCell,
     fetchCountyData,
     retryCountyFetch,
     techType,
@@ -44,7 +43,6 @@ export function RightPanel() {
   } = useLumenStore();
 
   const closePanel = () => {
-    selectCell(null);
     fetchCountyData(null);
   };
 
@@ -229,7 +227,7 @@ function CountyPanelContent({
 }) {
   const { pinCounty, unpinCounty, pinnedCountyIds, capex, carbonPrice } = useLumenStore();
   const ciColor = carbonToColor(county.carbonIntensity);
-  const timeSeries = useMemo(() => generateTimeSeries(), []);
+  const timeSeries = useMemo(() => generateFallbackConusSeries(parseInt(county.id) || 42), [county.id]);
   const isPinned = pinnedCountyIds.includes(county.id);
   const canPin = !isPinned && pinnedCountyIds.length < 3;
 
@@ -325,18 +323,18 @@ function CountyPanelContent({
       <div className="px-5 pb-6 space-y-5">
         {/* Key Metrics */}
         <div className="grid grid-cols-2 gap-3">
-          <MetricCard icon={Leaf} label="Carbon Intensity" color={ciColor}>
+          <MetricCard icon={Leaf} label="Carbon Intensity" color={ciColor} delay={0}>
             <AnimatedNumber value={county.carbonIntensity} decimals={0} />
             <span className="text-[10px] text-gray-500 ml-1">gCO₂/kWh</span>
           </MetricCard>
-          <MetricCard icon={Zap} label="Renewable" color="#a1a1aa">
+          <MetricCard icon={Zap} label="Renewable" color="#a1a1aa" delay={0.05}>
             <AnimatedNumber value={county.renewablePercent} decimals={0} suffix="%" />
           </MetricCard>
-          <MetricCard icon={DollarSign} label="LCOE" color="#fff">
+          <MetricCard icon={DollarSign} label="LCOE" color="#fff" delay={0.1}>
             $<AnimatedNumber value={county.lcoe} decimals={0} />
             <span className="text-[10px] text-gray-500 ml-1">/MWh</span>
           </MetricCard>
-          <MetricCard icon={TrendingUp} label="Load" color="#d4d4d8">
+          <MetricCard icon={TrendingUp} label="Load" color="#d4d4d8" delay={0.15}>
             <AnimatedNumber value={county.load} decimals={1} />
             <span className="text-[10px] text-gray-500 ml-1">GW</span>
           </MetricCard>
@@ -561,19 +559,22 @@ function MetricCard({
   icon: Icon,
   label,
   color,
+  delay = 0,
   children,
 }: {
   icon: React.ElementType;
   label: string;
   color: string;
+  delay?: number;
   children: React.ReactNode;
 }) {
   return (
     <motion.div
-      initial={{ opacity: 0, y: 10 }}
+      initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.3 }}
-      className="px-3 py-3 rounded-xl bg-gray-800/40 border border-gray-700/30 hover:border-gray-600/40 transition-colors"
+      transition={{ duration: 0.35, delay }}
+      whileHover={{ scale: 1.02, borderColor: "rgba(255,255,255,0.15)" }}
+      className="px-3 py-3 rounded-xl bg-gray-800/40 border border-gray-700/30 hover:border-gray-600/40 transition-colors cursor-default"
     >
       <div className="flex items-center gap-1.5 mb-1.5">
         <Icon className="w-3 h-3" style={{ color }} />

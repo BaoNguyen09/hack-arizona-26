@@ -33,6 +33,10 @@ def county_artifact_key(fips_code: str, scenario: ScenarioRequest) -> str:
             "scenario": scenario_to_dict(scenario),
             "data_vintage": DATA_VINTAGE,
             "model_versions": model_versions,
+            "sqlite": {
+                "enabled": bool(settings.use_sqlite_db),
+                "db_path": str(settings.lumen_db_path),
+            },
         }
     )
 

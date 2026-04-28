@@ -30,10 +30,7 @@ export function MapView() {
   const [countiesLayerReady, setCountiesLayerReady] = useState(false);
 
   const {
-    gridCells,
-    showHeatmap,
     showZones,
-    selectCell,
     fetchCountyData,
     matchedCountyFips,
     leftSidebarOpen,
@@ -46,6 +43,8 @@ export function MapView() {
     weightLcoe,
     weightRevenue,
     weightCarbon,
+    countyMetricsByFips,
+    refreshCountyMetrics,
   } = useLumenStore();
 
   useEffect(() => {
@@ -117,6 +116,10 @@ export function MapView() {
         carbonPrice: cp,
         colorMode: "cost",
         timeHour: th,
+        weightLcoe,
+        weightRevenue,
+        weightCarbon,
+        countyMetricsByFips: useLumenStore.getState().countyMetricsByFips,
       });
 
       // Add States source
@@ -141,9 +144,9 @@ export function MapView() {
           paint: {
             "fill-color": ["get", "color"],
             "fill-opacity": 0.7,
-            "fill-color-transition": { duration: 400, delay: 0 },
-            "fill-opacity-transition": { duration: 400, delay: 0 },
-          },
+            "fill-color-transition": { duration: 1500, delay: 0 },
+            "fill-opacity-transition": { duration: 1500, delay: 0 },
+          } as any,
         });
 
         map.addLayer({
@@ -353,6 +356,8 @@ export function MapView() {
       }
     };
   }, [matchedCountyFips, mapLoaded]);
+  const currentHourInt = Math.floor(timeHour);
+
   // ── Re-color counties when scenario changes ────────
   useEffect(() => {
     if (!mapRef.current || !mapLoaded || !countiesLayerReady || !rawCountyGeoJSONRef.current) return;
@@ -360,18 +365,32 @@ export function MapView() {
     const source = map.getSource("counties") as maplibregl.GeoJSONSource | undefined;
     if (!source) return;
 
+    void refreshCountyMetrics();
     const enhanced = enhanceCountyGeoJSON(rawCountyGeoJSONRef.current, {
       techType,
       capex,
       carbonPrice,
       colorMode: "cost",
-      timeHour,
+      timeHour: currentHourInt,
       weightLcoe,
       weightRevenue,
       weightCarbon,
+      countyMetricsByFips,
     });
     source.setData(enhanced as any);
-  }, [techType, capex, carbonPrice, timeHour, weightLcoe, weightRevenue, weightCarbon, mapLoaded, countiesLayerReady]);
+  }, [
+    techType,
+    capex,
+    carbonPrice,
+    currentHourInt,
+    weightLcoe,
+    weightRevenue,
+    weightCarbon,
+    mapLoaded,
+    countiesLayerReady,
+    countyMetricsByFips,
+    refreshCountyMetrics,
+  ]);
 
   // ── Zone visibility toggle ─────────────────────────
   useEffect(() => {
@@ -391,143 +410,6 @@ export function MapView() {
       if (map.getLayer(id)) map.setLayoutProperty(id, "visibility", vis);
     });
   }, [showZones, mapLoaded]);
-
-  useEffect(() => {
-    if (!mapRef.current || !mapLoaded) return;
-    const map = mapRef.current;
-
-    const features = gridCells.map((cell) => ({
-      type: "Feature" as const,
-      properties: {
-        id: cell.id,
-        costScore: cell.costScore,
-        carbonIntensity: cell.carbonIntensity,
-        capacityFactor: cell.capacityFactor,
-        lcoe: cell.lcoe,
-        avgPrice: cell.avgPrice,
-        region: cell.region,
-        color: costToColor(cell.costScore),
-      },
-      geometry: {
-        type: "Polygon" as const,
-        coordinates: [[
-          [cell.lon - 0.5, cell.lat - 0.4],
-          [cell.lon + 0.5, cell.lat - 0.4],
-          [cell.lon + 0.5, cell.lat + 0.4],
-          [cell.lon - 0.5, cell.lat + 0.4],
-          [cell.lon - 0.5, cell.lat - 0.4],
-        ]],
-      },
-    }));
-
-    const geojson = { type: "FeatureCollection" as const, features };
-
-    if (map.getSource("grid-cells")) {
-      (map.getSource("grid-cells") as maplibregl.GeoJSONSource).setData(geojson as any);
-    } else {
-      map.addSource("grid-cells", { type: "geojson", data: geojson as any });
-
-      map.addLayer({
-        id: "grid-cells-fill",
-        type: "fill",
-        source: "grid-cells",
-        paint: {
-          "fill-color": ["get", "color"],
-          "fill-opacity": 0.4,
-          "fill-color-transition": { duration: 400, delay: 0 },
-        },
-      });
-      map.addLayer({
-        id: "grid-cells-line",
-        type: "line",
-        source: "grid-cells",
-        paint: {
-          "line-color": ["get", "color"],
-          "line-width": 0.3,
-          "line-opacity": 0.15,
-        },
-      });
-      map.addLayer({
-        id: "grid-cells-hover",
-        type: "fill",
-        source: "grid-cells",
-        paint: { "fill-color": "#ffffff", "fill-opacity": 0 },
-        filter: ["==", "id", ""],
-      });
-
-      map.on("mousemove", "grid-cells-fill", (e) => {
-        if (showZones) return;
-        map.getCanvas().style.cursor = "pointer";
-        if (!e.features?.length) return;
-        const props = e.features[0].properties!;
-
-        map.setFilter("grid-cells-hover", ["==", "id", props.id]);
-        map.setPaintProperty("grid-cells-hover", "fill-opacity", 0.12);
-
-        if (popupRef.current) popupRef.current.remove();
-        const costColor =
-          props.costScore < 30
-            ? "#10b981"
-            : props.costScore < 50
-              ? "#22d3ee"
-              : props.costScore < 70
-                ? "#f59e0b"
-                : "#ef4444";
-        const costLabel =
-          props.costScore < 30
-            ? "Excellent"
-            : props.costScore < 50
-              ? "Good"
-              : props.costScore < 70
-                ? "Moderate"
-                : "High Cost";
-
-        popupRef.current = new maplibregl.Popup({
-          closeButton: false,
-          closeOnClick: false,
-          offset: 12,
-        })
-          .setLngLat(e.lngLat)
-          .setHTML(
-            `<div style="font-family:Inter,sans-serif; background: rgba(11, 15, 20, 0.95); backdrop-filter: blur(8px); border: 1px solid rgba(31, 41, 55, 0.5); padding: 8px; border-radius: 8px;">
-              <div style="font-size:12px;font-weight:600;margin-bottom:5px;color:${costColor}">${costLabel} <span style="color:#9ca3af;font-weight:400;font-size:10px;">- ${props.region}</span></div>
-              <div style="display:grid;grid-template-columns:1fr 1fr;gap:3px 14px;font-size:11px;">
-                <span style="color:#9ca3af;">CF</span><span style="color:white;font-weight:500;text-align:right;">${(props.capacityFactor * 100).toFixed(1)}%</span>
-                <span style="color:#9ca3af;">LCOE</span><span style="color:white;font-weight:500;text-align:right;">$${Number(props.lcoe).toFixed(1)}/MWh</span>
-                <span style="color:#9ca3af;">Carbon</span><span style="color:white;font-weight:500;text-align:right;">${Number(props.carbonIntensity).toFixed(0)} g</span>
-                <span style="color:#9ca3af;">Price</span><span style="color:white;font-weight:500;text-align:right;">$${Number(props.avgPrice).toFixed(0)}/MWh</span>
-              </div>
-            </div>`
-          )
-          .addTo(map);
-      });
-
-      map.on("mouseleave", "grid-cells-fill", () => {
-        if (showZones) return;
-        map.getCanvas().style.cursor = "";
-        map.setFilter("grid-cells-hover", ["==", "id", ""]);
-        map.setPaintProperty("grid-cells-hover", "fill-opacity", 0);
-        popupRef.current?.remove();
-        popupRef.current = null;
-      });
-
-      map.on("click", "grid-cells-fill", (e) => {
-        if (showZones) return;
-        if (!e.features?.length) return;
-        const cell = gridCells.find((c) => c.id === e.features![0].properties!.id);
-        if (cell) selectCell(cell);
-      });
-    }
-  }, [gridCells, mapLoaded, selectCell, showZones]);
-
-  useEffect(() => {
-    if (!mapRef.current || !mapLoaded) return;
-    const map = mapRef.current;
-    const vis = showHeatmap && !showZones ? "visible" : "none";
-    ["grid-cells-fill", "grid-cells-line", "grid-cells-hover"].forEach((id) => {
-      if (map.getLayer(id)) map.setLayoutProperty(id, "visibility", vis);
-    });
-  }, [showHeatmap, showZones, mapLoaded]);
 
   useEffect(() => {
     if (!mapRef.current) return;
@@ -558,22 +440,6 @@ export function MapView() {
                 style={{ background: "linear-gradient(to right, #22c55e, #eab308, #ef4444)" }}
               />
               <span className="text-[9px] text-gray-400">Expensive</span>
-            </div>
-          </>
-        ) : showHeatmap ? (
-          <>
-            <p className="text-[9px] text-gray-400 uppercase tracking-wider mb-1.5 font-medium">
-              Cost Score - {techType === "solar" ? "Solar" : "Wind"}
-            </p>
-            <div className="flex items-center gap-1.5">
-              <span className="text-[9px] text-gray-400">Low</span>
-              <div
-                className="w-24 h-1.5 rounded-full"
-                style={{
-                  background: "linear-gradient(to right, #22c55e, #eab308, #ef4444)",
-                }}
-              />
-              <span className="text-[9px] text-gray-400">High</span>
             </div>
           </>
         ) : null}
