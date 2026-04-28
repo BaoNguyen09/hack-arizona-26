@@ -14,6 +14,9 @@ import numpy as np
 import pandas as pd
 
 from backend.app.schemas.scenario import ScenarioRequest
+from backend.app.services.weather.cf_adjustment import adjusted_capacity_factor
+from backend.app.services.weather.open_meteo import fetch_open_meteo_hourly
+from backend.app.data.county_store import STATE_CENTROIDS
 
 
 def compute_capital_recovery_factor(discount_rate: float, lifetime_years: int) -> float:
@@ -230,6 +233,63 @@ def score_all_cells(
     else:
         raise ValueError(f"Unknown technology: {scenario.technology}")
 
+    weather_multiplier = None
+    if scenario.weather_adjustment:
+        # Build per-row weather values.
+        # Prefer simulation overrides; otherwise fetch once per state_code and broadcast.
+        temp = None
+        cloud = None
+        wind = None
+
+        sim = scenario.simulation_weather or {}
+        if sim:
+            if "temp_c" in sim:
+                temp = np.full(len(df), float(sim["temp_c"]), dtype=float)
+            if "cloud_cover_pct" in sim:
+                cloud = np.full(len(df), float(sim["cloud_cover_pct"]), dtype=float)
+            if "wind_speed_m_s" in sim:
+                wind = np.full(len(df), float(sim["wind_speed_m_s"]), dtype=float)
+        else:
+            if "state_code" in df.columns:
+                # Fetch current-day weather (UTC) per state centroid.
+                now = pd.Timestamp.utcnow().floor("h")
+                end = (now + pd.Timedelta(hours=1)).isoformat().replace("+00:00", "Z")
+                start = now.isoformat().replace("+00:00", "Z")
+
+                by_state: dict[str, dict[str, float]] = {}
+                for code in pd.Series(df["state_code"]).dropna().astype(str).unique():
+                    centroid = STATE_CENTROIDS.get(code)
+                    if not centroid:
+                        continue
+                    lat, lon = centroid
+                    try:
+                        result = fetch_open_meteo_hourly(lat=lat, lon=lon, start=start, end=end)
+                        if result.frame.empty:
+                            continue
+                        row0 = result.frame.iloc[0]
+                    except Exception:
+                        continue
+                    by_state[code] = {
+                        "temp_c": float(row0.get("temp_c")) if pd.notna(row0.get("temp_c")) else np.nan,
+                        "cloud_cover_pct": float(row0.get("cloud_cover_pct")) if pd.notna(row0.get("cloud_cover_pct")) else np.nan,
+                        "wind_speed_m_s": float(row0.get("wind_speed_m_s")) if pd.notna(row0.get("wind_speed_m_s")) else np.nan,
+                    }
+
+                states = pd.Series(df["state_code"]).astype(str)
+                temp = states.map(lambda s: by_state.get(s, {}).get("temp_c", np.nan)).to_numpy(dtype=float)
+                cloud = states.map(lambda s: by_state.get(s, {}).get("cloud_cover_pct", np.nan)).to_numpy(dtype=float)
+                wind = states.map(lambda s: by_state.get(s, {}).get("wind_speed_m_s", np.nan)).to_numpy(dtype=float)
+
+        adjusted_cf, mult = adjusted_capacity_factor(
+            base_cf=capacity_factor,
+            technology=scenario.technology,
+            temp_c=temp,
+            cloud_cover_pct=cloud,
+            wind_speed_m_s=wind,
+        )
+        capacity_factor = adjusted_cf
+        weather_multiplier = mult
+
     # Compute CRF once
     crf = compute_capital_recovery_factor(
         scenario.discount_rate, scenario.project_lifetime_years
@@ -273,6 +333,8 @@ def score_all_cells(
     # Create result DataFrame
     result = df.copy()
     result["selected_cf"] = capacity_factor
+    if weather_multiplier is not None:
+        result["weather_cf_multiplier"] = weather_multiplier
     result["lcoe_usd_per_mwh"] = lcoe
     result["revenue_usd_per_mwh"] = revenue
     result["carbon_value_usd_per_mwh"] = carbon_value
@@ -303,6 +365,22 @@ def score_single_cell(
         cf = np.array([row["solar_cf_mean"]])
     else:
         cf = np.array([row["wind_cf_mean"]])
+
+    if scenario.weather_adjustment:
+        sim = scenario.simulation_weather or {}
+        temp = np.array([float(sim["temp_c"])]) if "temp_c" in sim else None
+        cloud = np.array([float(sim["cloud_cover_pct"])]) if "cloud_cover_pct" in sim else None
+        wind = np.array([float(sim["wind_speed_m_s"])]) if "wind_speed_m_s" in sim else None
+        cf, mult = adjusted_capacity_factor(
+            base_cf=cf,
+            technology=scenario.technology,
+            temp_c=temp,
+            cloud_cover_pct=cloud,
+            wind_speed_m_s=wind,
+        )
+        cf_mult = float(mult[0])
+    else:
+        cf_mult = 1.0
 
     price = np.array([row["price_usd_per_mwh_mean"]])
     carbon_intensity = np.array([row["carbon_g_per_kwh_mean"]])
@@ -364,5 +442,6 @@ def score_single_cell(
         "annual_carbon_displacement_tons": float(annual_carbon_tons),
         "annual_carbon_value_usd": float(annual_carbon_value),
         "selected_cf": float(cf[0]),
+        "weather_cf_multiplier": float(cf_mult),
         "crf": float(crf),
     }

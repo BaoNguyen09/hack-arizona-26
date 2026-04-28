@@ -15,6 +15,8 @@ from backend.app.schemas.scenario import (
     BriefRequest,
     BriefResponse,
     CountyJobRequest,
+    ForecastRequest,
+    ForecastResponse,
     HealthResponse,
     HeatmapResponse,
     JobStatusResponse,
@@ -26,6 +28,8 @@ from backend.app.schemas.scenario import (
     SiteResponse,
 )
 from backend.app.services.heatmap import build_heatmap_response
+from backend.app.services.forecast import LatLon as ForecastLatLon
+from backend.app.services.forecast import forecast_usage_and_cost, to_records
 from backend.app.services.query import run_query
 from backend.app.services.site import get_site_response
 
@@ -71,6 +75,32 @@ def heatmap(payload: ScenarioRequest) -> HeatmapResponse:
         raise HTTPException(
             status_code=500, detail=f"Error computing scores: {e}"
         ) from e
+
+
+@router.post("/forecast", response_model=ForecastResponse)
+def forecast(payload: ForecastRequest) -> ForecastResponse:
+    """Forecast state usage + estimated spend (baseline and optionally weather-adjusted)."""
+    try:
+        state_locations = None
+        if payload.state_locations:
+            state_locations = {
+                code: ForecastLatLon(lat=loc.lat, lon=loc.lon)
+                for code, loc in payload.state_locations.items()
+            }
+        frame = forecast_usage_and_cost(
+            start=payload.start,
+            end=payload.end,
+            hours=payload.hours,
+            states=payload.states,
+            assumption_window_hours=payload.assumption_window_hours,
+            weather_adjustment=payload.weather_adjustment,
+            state_locations=state_locations,
+        )
+        return ForecastResponse(rows=to_records(frame))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Forecast failed: {e}") from e
 
 
 @router.get("/site", response_model=SiteResponse)
