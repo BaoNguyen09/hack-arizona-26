@@ -10,15 +10,36 @@ from typing import Any, Iterable
 import numpy as np
 import pandas as pd
 
-from electricity_cost_model import (
-    BASE_NUMERIC_FEATURES,
-    CALENDAR_FEATURES,
-    CATEGORICAL_FEATURES,
-    LAG_FEATURES,
-    MIX_COLUMNS,
-    ElectricityUsageModel,
-    _month_to_datetime,
-)
+try:
+    # When imported as a package (e.g. via backend proxy endpoint)
+    from .electricity_cost_model import (  # type: ignore[import-not-found]
+        BASE_NUMERIC_FEATURES,
+        CALENDAR_FEATURES,
+        CATEGORICAL_FEATURES,
+        LAG_FEATURES,
+        MIX_COLUMNS,
+        ElectricityUsageModel,
+        _month_to_datetime,
+    )
+    from .weather_adjustment import (  # type: ignore[import-not-found]
+        WeatherAdjustmentConfig,
+        apply_weather_adjustment,
+    )
+except Exception:  # pragma: no cover
+    # When run as a standalone script from this directory
+    from electricity_cost_model import (  # type: ignore[no-redef]
+        BASE_NUMERIC_FEATURES,
+        CALENDAR_FEATURES,
+        CATEGORICAL_FEATURES,
+        LAG_FEATURES,
+        MIX_COLUMNS,
+        ElectricityUsageModel,
+        _month_to_datetime,
+    )
+    from weather_adjustment import (  # type: ignore[no-redef]
+        WeatherAdjustmentConfig,
+        apply_weather_adjustment,
+    )
 
 
 DEFAULT_MODEL_PATH = "electricity_usage_model.pkl"
@@ -355,3 +376,39 @@ def forecast_from_files(
         profile_features=profile_features,
     )
     return forecast_usage(fitted_model, history, request)
+
+
+def forecast_from_files_with_weather_adjustment(
+    *,
+    start: str,
+    end: str | None = None,
+    hours: int | None = None,
+    states: Iterable[str] | None = None,
+    model_path: str | Path = DEFAULT_MODEL_PATH,
+    history_path: str | Path = DEFAULT_HISTORY_PATH,
+    assumption_window_hours: int = 24 * 30,
+    feature_overrides: dict[str, dict[str, float]] | None = None,
+    weather_rows: pd.DataFrame,
+    weather_config: WeatherAdjustmentConfig | None = None,
+) -> pd.DataFrame:
+    """
+    Forecast baseline usage/cost and then apply a weather-derived multiplier.
+
+    This is designed to be called by the main backend (which fetches Open‑Meteo)
+    so the MLModel can remain usable without embedding an external API dependency.
+    """
+    baseline = forecast_from_files(
+        start=start,
+        end=end,
+        hours=hours,
+        states=states,
+        model_path=model_path,
+        history_path=history_path,
+        assumption_window_hours=assumption_window_hours,
+        feature_overrides=feature_overrides,
+    )
+    return apply_weather_adjustment(
+        forecast_rows=baseline,
+        weather_rows=weather_rows,
+        config=weather_config,
+    )

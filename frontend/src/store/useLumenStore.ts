@@ -1,28 +1,26 @@
 import { create } from "zustand";
-import {
-  SiteAssessment,
-} from "../data/mockData";
+import { SiteAssessment } from "../data/mockData";
 import { type ZoneData, type TechType } from "../data/zones";
 import {
-  fetchCountyMetricsViaJob,
   fetchCountyBrief,
+  fetchCountyMetricsViaJob,
+  fetchForecast,
   fetchHeatmap,
-  type HeatmapCell,
   submitNaturalLanguageQuery,
+  type ForecastRow,
+  type HeatmapCell,
   type QueryFilters,
 } from "../lib/api";
 
 export type { TechType };
 
 interface LumenState {
-  // Scenario controls
   techType: TechType;
   carbonPrice: number;
   capex: number;
   timeHour: number;
   isLive: boolean;
 
-  // Scoring weight sliders (0–1, should sum to 1 but are applied as raw multipliers)
   weightLcoe: number;
   weightRevenue: number;
   weightCarbon: number;
@@ -30,7 +28,6 @@ interface LumenState {
   siteAssessment: SiteAssessment | null;
   rightPanelOpen: boolean;
 
-  // Selected zone/county
   selectedCountyId: string | null;
   selectedCounty: ZoneData | null;
   matchedCountyFips: string[];
@@ -40,29 +37,34 @@ interface LumenState {
   activeQueryText: string;
   queryPending: boolean;
 
-  // County job fetch status
   countyFetchStatus: "idle" | "loading" | "success" | "error";
   countyFetchError: string | null;
 
-  // Comparison mode — up to 3 pinned counties
   pinnedCountyIds: string[];
   pinnedCounties: Record<string, ZoneData>;
 
-  // Left sidebar
   leftSidebarOpen: boolean;
   sidebarTab: "overview" | "carbon" | "mix" | "price";
 
-  // Layer toggles
   showTransmission: boolean;
   showHeatmap: boolean;
   showZones: boolean;
 
-  // Real county scoring cache (from backend /heatmap, keyed by county FIPS)
+  weatherSimulationEnabled: boolean;
+  simulationWeather: {
+    temp_c: number;
+    cloud_cover_pct: number;
+    wind_speed_m_s: number;
+  };
+
+  forecastRows: ForecastRow[];
+  forecastStatus: "idle" | "loading" | "success" | "error";
+  forecastError: string | null;
+
   countyMetricsByFips: Record<string, HeatmapCell>;
   countyMetricsStatus: "idle" | "loading" | "success" | "error";
   countyMetricsError: string | null;
 
-  // Actions
   setTechType: (t: TechType) => void;
   setCarbonPrice: (p: number) => void;
   setCapex: (c: number) => void;
@@ -81,6 +83,11 @@ interface LumenState {
   toggleTransmission: () => void;
   toggleHeatmap: () => void;
   toggleZones: () => void;
+
+  setWeatherSimulationEnabled: (enabled: boolean) => void;
+  setSimulationWeather: (patch: Partial<LumenState["simulationWeather"]>) => void;
+  refreshForecast: () => Promise<void>;
+
   recalculate: () => void;
   refreshCountyMetrics: () => Promise<void>;
 }
@@ -95,6 +102,17 @@ export const useLumenStore = create<LumenState>((set, get) => ({
   weightLcoe: 1.0,
   weightRevenue: 1.0,
   weightCarbon: 1.0,
+
+  weatherSimulationEnabled: false,
+  simulationWeather: {
+    temp_c: 18,
+    cloud_cover_pct: 20,
+    wind_speed_m_s: 7,
+  },
+
+  forecastRows: [],
+  forecastStatus: "idle",
+  forecastError: null,
 
   siteAssessment: null,
   rightPanelOpen: false,
@@ -139,9 +157,30 @@ export const useLumenStore = create<LumenState>((set, get) => ({
   },
   setTimeHour: (h) => {
     set({ timeHour: h });
+    const { weatherSimulationEnabled, forecastRows } = get();
+    if (weatherSimulationEnabled && forecastRows.length > 0) {
+      const hourIdx = ((Math.floor(h) % 24) + 24) % 24;
+      const row = forecastRows[hourIdx];
+      if (row) {
+        const patch: any = {};
+        if (typeof row.temp_c === "number") patch.temp_c = row.temp_c;
+        if (typeof row.cloud_cover_pct === "number") patch.cloud_cover_pct = row.cloud_cover_pct;
+        if (typeof row.wind_speed_m_s === "number") patch.wind_speed_m_s = row.wind_speed_m_s;
+        if (Object.keys(patch).length > 0) {
+          set((s) => ({ simulationWeather: { ...s.simulationWeather, ...patch } }));
+        }
+      }
+    }
     get().recalculate();
   },
-  setIsLive: (live) => set({ isLive: live }),
+  setIsLive: (live) => {
+    set({ isLive: live });
+    if (!live) {
+      const { weatherSimulationEnabled, forecastRows } = get();
+      if (!weatherSimulationEnabled) set({ weatherSimulationEnabled: true });
+      if (!forecastRows || forecastRows.length === 0) void get().refreshForecast();
+    }
+  },
   setWeights: (w) => {
     set(w);
     get().recalculate();
@@ -160,7 +199,6 @@ export const useLumenStore = create<LumenState>((set, get) => ({
       return;
     }
 
-    // Open panel immediately with loading state
     set({
       selectedCountyId: fips,
       selectedCounty: null,
@@ -182,7 +220,6 @@ export const useLumenStore = create<LumenState>((set, get) => ({
       const briefData = await fetchCountyBrief(data.site, data.scenario);
       const metrics = data.site;
 
-      // Map API response to the expected frontend SiteAssessment schema
       const assessment: SiteAssessment = {
         region: name || `County ${fips}`,
         zone: stateFips ? `Zone ${stateFips}` : metrics.grid_zone_id,
@@ -201,16 +238,8 @@ export const useLumenStore = create<LumenState>((set, get) => ({
             price: metrics.avg_wholesale_price_usd_per_mwh,
           })),
         lcoeBreakdown: [
-          {
-            category: "CAPEX",
-            value: metrics.lcoe_components.capex_share_usd_per_mwh || 20,
-            color: "#3b82f6",
-          },
-          {
-            category: "OPEX",
-            value: metrics.lcoe_components.opex_share_usd_per_mwh || 5,
-            color: "#06b6d4",
-          },
+          { category: "CAPEX", value: metrics.lcoe_components.capex_share_usd_per_mwh || 20, color: "#3b82f6" },
+          { category: "OPEX", value: metrics.lcoe_components.opex_share_usd_per_mwh || 5, color: "#06b6d4" },
           { category: "Transmission", value: 3.5, color: "#f59e0b" },
           { category: "Financing", value: 2.1, color: "#8b5cf6" },
         ],
@@ -223,7 +252,6 @@ export const useLumenStore = create<LumenState>((set, get) => ({
           })),
       };
 
-      // Also set selectedCounty with basic data so CountyPanelContent works
       const countyData = {
         id: fips,
         name: name || `County ${fips}`,
@@ -232,11 +260,7 @@ export const useLumenStore = create<LumenState>((set, get) => ({
         renewablePercent: metrics.renewable_percent || 0,
         lcoe: metrics.lcoe_usd_per_mwh,
         load: metrics.load_gw || 0,
-        generation: {
-          solar: metrics.solar_cf_mean * 100,
-          wind: metrics.wind_cf_mean * 100,
-          gas: 40,
-        },
+        generation: { solar: metrics.solar_cf_mean * 100, wind: metrics.wind_cf_mean * 100, gas: 40 },
         carbonFreePercent: (metrics.renewable_percent || 0) + 10,
         price: metrics.avg_wholesale_price_usd_per_mwh,
       };
@@ -248,41 +272,29 @@ export const useLumenStore = create<LumenState>((set, get) => ({
         countyFetchError: null,
       });
     } catch (error) {
-      const msg =
-        error instanceof Error ? error.message : "Unknown error fetching county data.";
+      const msg = error instanceof Error ? error.message : "Unknown error fetching county data.";
       console.error("Failed to fetch county data:", error);
-      set({
-        countyFetchStatus: "error",
-        countyFetchError: msg,
-      });
+      set({ countyFetchStatus: "error", countyFetchError: msg });
     }
   },
 
   retryCountyFetch: async () => {
     const { selectedCountyId, fetchCountyData } = get();
-    if (selectedCountyId) {
-      await fetchCountyData(selectedCountyId);
-    }
+    if (selectedCountyId) await fetchCountyData(selectedCountyId);
   },
 
   pinCounty: (fips, data) => {
     const { pinnedCountyIds, pinnedCounties } = get();
-    if (pinnedCountyIds.includes(fips)) return; // already pinned
-    if (pinnedCountyIds.length >= 3) return;     // max 3
-    set({
-      pinnedCountyIds: [...pinnedCountyIds, fips],
-      pinnedCounties: { ...pinnedCounties, [fips]: data },
-    });
+    if (pinnedCountyIds.includes(fips)) return;
+    if (pinnedCountyIds.length >= 3) return;
+    set({ pinnedCountyIds: [...pinnedCountyIds, fips], pinnedCounties: { ...pinnedCounties, [fips]: data } });
   },
 
   unpinCounty: (fips) => {
     const { pinnedCountyIds, pinnedCounties } = get();
     const next = { ...pinnedCounties };
     delete next[fips];
-    set({
-      pinnedCountyIds: pinnedCountyIds.filter((id) => id !== fips),
-      pinnedCounties: next,
-    });
+    set({ pinnedCountyIds: pinnedCountyIds.filter((id) => id !== fips), pinnedCounties: next });
   },
 
   clearPinnedCounties: () => set({ pinnedCountyIds: [], pinnedCounties: {} }),
@@ -301,12 +313,7 @@ export const useLumenStore = create<LumenState>((set, get) => ({
       return;
     }
 
-    set({
-      queryPending: true,
-      activeQueryText: trimmed,
-      queryMessage: null,
-    });
-
+    set({ queryPending: true, activeQueryText: trimmed, queryMessage: null });
     try {
       const response = await submitNaturalLanguageQuery(trimmed);
       set((state) => ({
@@ -315,10 +322,7 @@ export const useLumenStore = create<LumenState>((set, get) => ({
         queryFilters: response.filters,
         matchedCountyFips: response.matched_county_fips,
         matchedCellIds: response.matched_cell_ids,
-        showZones:
-          response.parsed && response.matched_county_fips.length > 0
-            ? true
-            : state.showZones,
+        showZones: response.parsed && response.matched_county_fips.length > 0 ? true : state.showZones,
       }));
     } catch (error) {
       console.error("Failed to run natural language query:", error);
@@ -342,21 +346,47 @@ export const useLumenStore = create<LumenState>((set, get) => ({
       queryPending: false,
     }),
 
-  toggleLeftSidebar: () =>
-    set((s) => ({ leftSidebarOpen: !s.leftSidebarOpen })),
+  toggleLeftSidebar: () => set((s) => ({ leftSidebarOpen: !s.leftSidebarOpen })),
   setSidebarTab: (tab) => set({ sidebarTab: tab }),
-  toggleTransmission: () =>
-    set((s) => ({ showTransmission: !s.showTransmission })),
+  toggleTransmission: () => set((s) => ({ showTransmission: !s.showTransmission })),
   toggleHeatmap: () => set((s) => ({ showHeatmap: !s.showHeatmap })),
   toggleZones: () => set((s) => ({ showZones: !s.showZones })),
 
+  setWeatherSimulationEnabled: (enabled) => {
+    set({ weatherSimulationEnabled: enabled });
+    if (enabled) void get().refreshForecast();
+    get().recalculate();
+  },
+  setSimulationWeather: (patch) => {
+    set((s) => ({ simulationWeather: { ...s.simulationWeather, ...patch } }));
+    get().recalculate();
+  },
+  refreshForecast: async () => {
+    set({ forecastStatus: "loading", forecastError: null });
+    try {
+      const start = new Date();
+      start.setUTCMinutes(0, 0, 0);
+      const startIso = start.toISOString().replace(".000Z", "Z");
+      const resp = await fetchForecast({
+        start: startIso,
+        hours: 24,
+        states: ["TX"],
+        weather_adjustment: true,
+        state_locations: { TX: { lat: 31.5, lon: -99.3 } },
+      });
+      set({ forecastRows: resp.rows, forecastStatus: "success", forecastError: null });
+    } catch (e) {
+      set({ forecastStatus: "error", forecastError: e instanceof Error ? e.message : "Failed to fetch forecast" });
+    }
+  },
+
   recalculate: () => {
-    // Zones are now driven by real backend scoring; re-fetch when scenario changes.
     void get().refreshCountyMetrics();
   },
 
   refreshCountyMetrics: async () => {
-    const { techType, capex, carbonPrice, weightLcoe, weightRevenue, weightCarbon } = get();
+    const { techType, capex, carbonPrice, weightLcoe, weightRevenue, weightCarbon, weatherSimulationEnabled, simulationWeather } =
+      get();
     set({ countyMetricsStatus: "loading", countyMetricsError: null });
     try {
       const resp = await fetchHeatmap({
@@ -367,30 +397,18 @@ export const useLumenStore = create<LumenState>((set, get) => ({
         cost_weight: weightLcoe,
         revenue_weight: weightRevenue,
         carbon_weight: weightCarbon,
+        weather_adjustment: weatherSimulationEnabled,
+        simulation_weather: weatherSimulationEnabled ? simulationWeather : null,
       });
       const byFips: Record<string, HeatmapCell> = {};
       for (const cell of resp.cells) {
         const id = cell.cell_id || "";
         if (id.startsWith("county_")) {
           const fips = id.replace("county_", "");
-          let c = { ...cell };
-          // If wind, dynamically scramble the metrics slightly to strictly differentiate the map from solar
-          // This ensures the "wind" button demonstrably updates the UI with mock/synthetic data.
-          if (techType === "wind") {
-            const mockMod = (parseInt(fips) % 100) / 100; // deterministic pseudo-random 0-1
-            c.score = c.score * (0.6 + mockMod);
-            c.raw_lcoe_usd_per_mwh = c.raw_lcoe_usd_per_mwh * (0.7 + mockMod * 0.5);
-            c.raw_carbon_value_usd_per_mwh = c.raw_carbon_value_usd_per_mwh * (0.5 + mockMod);
-            c.raw_capacity_factor = Math.min(1, c.raw_capacity_factor * (1.2 + mockMod));
-          }
-          byFips[fips] = c;
+          byFips[fips] = { ...cell };
         }
       }
-      set({
-        countyMetricsByFips: byFips,
-        countyMetricsStatus: "success",
-        countyMetricsError: null,
-      });
+      set({ countyMetricsByFips: byFips, countyMetricsStatus: "success", countyMetricsError: null });
     } catch (e) {
       set({
         countyMetricsStatus: "error",

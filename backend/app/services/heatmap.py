@@ -53,6 +53,8 @@ def build_heatmap_response(payload: ScenarioRequest) -> HeatmapResponse:
         payload.cost_weight,
         payload.revenue_weight,
         payload.carbon_weight,
+        payload.weather_adjustment,
+        str(payload.simulation_weather) if payload.simulation_weather else None,
     )
     cached, cached_result = heatmap_cache.get(cache_key)
     if cached:

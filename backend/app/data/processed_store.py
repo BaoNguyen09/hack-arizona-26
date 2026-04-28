@@ -5,6 +5,7 @@ Loads GeoPackage data into memory and provides vectorized access for scoring.
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -278,18 +279,34 @@ def get_store() -> ProcessedStore:
     Returns:
         The global ProcessedStore instance
     """
-    # Default behavior in tests: ProcessedStore singleton.
-    # In app runtime: prefer SQLite DB if configured and present.
-    if settings.use_sqlite_db:
-        try:
-            db_path = Path(settings.lumen_db_path)
-            if db_path.exists():
-                store = SqliteProcessedStore.get_instance()
-                if not store.is_loaded():
-                    store.load(db_path)
-                return store  # type: ignore[return-value]
-        except Exception:
-            # Fall back to legacy store when DB isn't available/healthy.
-            pass
+    legacy = ProcessedStore.get_instance()
 
-    return ProcessedStore.get_instance()
+    # In app runtime: prefer SQLite DB if configured and present.
+    # In pytest: avoid accidentally picking up the repo's default sqlite artifact,
+    # but still allow tests that explicitly monkeypatch lumen_db_path.
+    if settings.use_sqlite_db:
+        is_pytest = "PYTEST_CURRENT_TEST" in os.environ
+        default_suffix = str(Path("data/processed/lumen.sqlite3"))
+        if is_pytest and str(settings.lumen_db_path).endswith(default_suffix):
+            return legacy
+
+        db_path = Path(settings.lumen_db_path)
+        if db_path.exists():
+            store = SqliteProcessedStore.get_instance()
+            if not store.is_loaded():
+                try:
+                    store.load(db_path)
+                except Exception:
+                    # In pytest, if the test explicitly pointed us at a DB path,
+                    # don't silently fall back (it would hide failures).
+                    if is_pytest:
+                        raise
+                    return legacy
+            return store  # type: ignore[return-value]
+
+    # If the legacy store singleton is already loaded (common in tests),
+    # prefer it over an unloaded legacy store.
+    if legacy.is_loaded():
+        return legacy
+
+    return legacy

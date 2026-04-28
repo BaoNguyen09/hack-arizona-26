@@ -53,6 +53,15 @@ class ScenarioRequest(BaseModel):
         description="Weight for carbon displacement value in composite score",
     )
 
+    weather_adjustment: bool = Field(
+        default=False,
+        description="If true, adjust capacity factors using Open‑Meteo weather (or simulation overrides).",
+    )
+    simulation_weather: dict[str, float] | None = Field(
+        default=None,
+        description="Optional simulated weather knobs (temp_c, cloud_cover_pct, wind_speed_m_s). Overrides live weather when present.",
+    )
+
 
 class ScoredCell(BaseModel):
     """A single scored cell for map rendering.
@@ -367,3 +376,29 @@ class JobStatusResponse(BaseModel):
     artifact_key: str | None = None
     result: dict[str, Any] | None = None
     error: str | None = None
+
+
+class LatLon(BaseModel):
+    lat: float = Field(ge=-90, le=90)
+    lon: float = Field(ge=-180, le=180)
+
+
+class ForecastRequest(BaseModel):
+    start: str = Field(..., examples=["2026-04-27T14:00:00Z"])
+    end: str | None = Field(None, examples=["2026-04-28T00:00:00Z"])
+    hours: int | None = Field(None, ge=1, examples=[24])
+    states: list[str] | None = Field(None, examples=[["CA", "TX", "NY"]])
+    assumption_window_hours: int = Field(24 * 30, ge=1)
+
+    weather_adjustment: bool = Field(
+        default=False,
+        description="If true, fetch Open‑Meteo weather and return weather-adjusted outputs.",
+    )
+    state_locations: dict[str, LatLon] | None = Field(
+        default=None,
+        description="State code -> lat/lon used for Open‑Meteo weather fetch.",
+    )
+
+
+class ForecastResponse(BaseModel):
+    rows: list[dict[str, Any]]

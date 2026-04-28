@@ -118,6 +118,8 @@ def cache_key_for_scenario(
     cost_weight: float,
     revenue_weight: float,
     carbon_weight: float,
+    weather_adjustment: bool = False,
+    simulation_weather: str | None = None,
 ) -> str:
     """Create a consistent cache key from scenario parameters.
 
@@ -125,5 +127,6 @@ def cache_key_for_scenario(
     """
     return (
         f"{technology}:{capacity_mw}:{capex}:{opex}:{discount_rate}:{project_lifetime_years}:"
-        f"{carbon_price}:{cost_weight}:{revenue_weight}:{carbon_weight}"
+        f"{carbon_price}:{cost_weight}:{revenue_weight}:{carbon_weight}:"
+        f"{int(bool(weather_adjustment))}:{simulation_weather or ''}"
     )

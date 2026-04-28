@@ -91,8 +91,15 @@ class SqliteProcessedStore:
 
     def _build_spatial_index(self) -> None:
         # STRtree over POINT geometries for nearest lookup.
-        from shapely import STRtree  # noqa: PLC0415
-        from shapely.geometry import Point  # noqa: PLC0415
+        # Shapely is an optional dependency in some environments (e.g. CI / pytest),
+        # and the store is still useful for ID lookups without it.
+        try:
+            from shapely import STRtree  # type: ignore
+            from shapely.geometry import Point  # type: ignore
+        except Exception:
+            self._spatial_index = None
+            self._geometry_to_index = None
+            return
 
         if self._df is None:
             self._spatial_index = None

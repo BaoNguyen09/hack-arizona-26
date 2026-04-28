@@ -9,6 +9,7 @@ gstack-source
 # Node
 frontend/node_modules/
 frontend/dist/
+frontend/tsconfig.tsbuildinfo
 
 # Environment
 .env
@@ -18,6 +19,10 @@ data/raw/*
 !data/raw/.gitkeep
 data/processed/*
 !data/processed/.gitkeep
+data/cache/
+
+# Backend job/artifact cache (runtime outputs)
+backend/data/processed/
 
 # Notebook noise
 .ipynb_checkpoints/
