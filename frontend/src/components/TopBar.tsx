@@ -5,6 +5,8 @@ import {
   Wind,
   DollarSign,
   Leaf,
+  Cloud,
+  Thermometer,
   Search,
   Map,
   Grid3x3,
@@ -45,6 +47,10 @@ export function TopBar() {
     queryMessage,
     queryPending,
     matchedCountyFips,
+    weatherSimulationEnabled,
+    setWeatherSimulationEnabled,
+    simulationWeather,
+    setSimulationWeather,
   } = useLumenStore();
 
   // ⌘K shortcut
@@ -183,6 +189,77 @@ export function TopBar() {
           label="Grid"
           activeColor="white"
         />
+      </div>
+
+      <div className="w-px h-6 bg-gray-700/50" />
+
+      {/* ── Simulation (weather) ─────────────────────── */}
+      <div className="flex items-center gap-2 px-2 py-1 rounded-lg bg-white/5 border border-white/10">
+        <span className="text-[11px] text-gray-400 whitespace-nowrap">Simulation</span>
+        <button
+          onClick={() => setWeatherSimulationEnabled(!weatherSimulationEnabled)}
+          className={`px-2 py-1 rounded-md text-[10px] font-medium border transition-colors ${
+            weatherSimulationEnabled
+              ? "bg-cyan-500/15 text-cyan-200 border-cyan-500/30"
+              : "bg-white/5 text-gray-400 border-white/10 hover:bg-white/10"
+          }`}
+          title="Toggle weather simulation (affects map scoring)"
+        >
+          {weatherSimulationEnabled ? "On" : "Off"}
+        </button>
+
+        <div className="w-px h-5 bg-gray-700/50" />
+
+        <div className="flex items-center gap-1.5">
+          <Thermometer className="w-3.5 h-3.5 text-gray-400" />
+          <input
+            type="range"
+            min={-5}
+            max={40}
+            step={1}
+            value={simulationWeather.temp_c}
+            disabled={!weatherSimulationEnabled}
+            onChange={(e) => setSimulationWeather({ temp_c: Number(e.target.value) })}
+            className="w-16 disabled:opacity-40"
+          />
+          <span className="text-[10px] text-gray-300 tabular-nums w-8 text-right">
+            {simulationWeather.temp_c}°C
+          </span>
+        </div>
+
+        <div className="flex items-center gap-1.5">
+          <Cloud className="w-3.5 h-3.5 text-gray-400" />
+          <input
+            type="range"
+            min={0}
+            max={100}
+            step={5}
+            value={simulationWeather.cloud_cover_pct}
+            disabled={!weatherSimulationEnabled}
+            onChange={(e) => setSimulationWeather({ cloud_cover_pct: Number(e.target.value) })}
+            className="w-16 disabled:opacity-40"
+          />
+          <span className="text-[10px] text-gray-300 tabular-nums w-10 text-right">
+            {simulationWeather.cloud_cover_pct}%
+          </span>
+        </div>
+
+        <div className="flex items-center gap-1.5">
+          <Wind className="w-3.5 h-3.5 text-gray-400" />
+          <input
+            type="range"
+            min={0}
+            max={18}
+            step={1}
+            value={simulationWeather.wind_speed_m_s}
+            disabled={!weatherSimulationEnabled}
+            onChange={(e) => setSimulationWeather({ wind_speed_m_s: Number(e.target.value) })}
+            className="w-16 disabled:opacity-40"
+          />
+          <span className="text-[10px] text-gray-300 tabular-nums w-12 text-right">
+            {simulationWeather.wind_speed_m_s} m/s
+          </span>
+        </div>
       </div>
 
       <div className="flex-1" />

@@ -27,7 +27,7 @@ import {
   CapacityBar,
 } from "./Charts";
 import { carbonToColor } from "../data/zones";
-import { generateTimeSeries } from "../data/mockData";
+import { generateFallbackConusSeries } from "../lib/timeseries";
 
 export function RightPanel() {
   const {
@@ -227,7 +227,7 @@ function CountyPanelContent({
 }) {
   const { pinCounty, unpinCounty, pinnedCountyIds, capex, carbonPrice } = useLumenStore();
   const ciColor = carbonToColor(county.carbonIntensity);
-  const timeSeries = useMemo(() => generateTimeSeries(), []);
+  const timeSeries = useMemo(() => generateFallbackConusSeries(parseInt(county.id) || 42), [county.id]);
   const isPinned = pinnedCountyIds.includes(county.id);
   const canPin = !isPinned && pinnedCountyIds.length < 3;
 

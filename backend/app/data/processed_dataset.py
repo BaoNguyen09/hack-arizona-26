@@ -109,6 +109,9 @@ def load_as_scoring_dataframe(dataset_path: Path | str = DEFAULT_DATASET_PATH):
             "price_usd_per_mwh_mean",
             "carbon_g_per_kwh_mean",
         ]
+        for optional in ("state_code", "state_name"):
+            if optional in raw.columns:
+                keep.append(optional)
         for optional in ("nearest_transmission_km", "price_hub_id", "grid_zone_id"):
             if optional in raw.columns:
                 keep.append(optional)
@@ -126,6 +129,8 @@ def load_as_scoring_dataframe(dataset_path: Path | str = DEFAULT_DATASET_PATH):
             "cell_id": frame["cell_id"],
             "lat": frame["lat"],
             "lon": frame["lon"],
+            "state_code": frame["state_code"],
+            "state_name": frame["state_name"],
             "solar_cf_mean": frame["solar_cf"],
             "wind_cf_mean": frame["wind_cf"],
             # cents/kWh → $/MWh: multiply by 10

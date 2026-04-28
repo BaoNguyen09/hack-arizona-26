@@ -5,6 +5,7 @@ Loads GeoPackage data into memory and provides vectorized access for scoring.
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -280,7 +281,7 @@ def get_store() -> ProcessedStore:
     """
     # Default behavior in tests: ProcessedStore singleton.
     # In app runtime: prefer SQLite DB if configured and present.
-    if settings.use_sqlite_db:
+    if settings.use_sqlite_db and "PYTEST_CURRENT_TEST" not in os.environ:
         try:
             db_path = Path(settings.lumen_db_path)
             if db_path.exists():

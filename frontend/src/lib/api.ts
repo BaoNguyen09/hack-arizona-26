@@ -187,6 +187,12 @@ export async function fetchHeatmap(payload: {
   cost_weight: number;
   revenue_weight: number;
   carbon_weight: number;
+  weather_adjustment?: boolean;
+  simulation_weather?: {
+    temp_c?: number;
+    cloud_cover_pct?: number;
+    wind_speed_m_s?: number;
+  } | null;
 }): Promise<HeatmapResponse> {
   const endpoint = "/heatmap";
   try {
@@ -204,6 +210,67 @@ export async function fetchHeatmap(payload: {
         cost_weight: payload.cost_weight,
         revenue_weight: payload.revenue_weight,
         carbon_weight: payload.carbon_weight,
+        weather_adjustment: payload.weather_adjustment ?? false,
+        simulation_weather: payload.simulation_weather ?? null,
+      }),
+    });
+    if (!response.ok) throw new Error(`API error ${response.status}: ${response.statusText}`);
+    return response.json();
+  } catch (err) {
+    throw normalizeApiError(err, endpoint);
+  }
+}
+
+export interface ForecastRow {
+  state_code: string;
+  state_name: string;
+  electricity_maps_zone_id: string;
+  timestamp: string;
+  predicted_total_kwh_usage: number;
+  avg_electricity_cost_cents_per_kwh: number | null;
+  estimated_total_cost: number | null;
+
+  // Weather-adjustment outputs (present when weather_adjustment enabled in backend proxy)
+  weather_multiplier?: number;
+  weather_adjusted_total_kwh_usage?: number;
+  weather_adjusted_total_cost?: number | null;
+  delta_kwh_usage?: number;
+  delta_total_cost?: number | null;
+
+  // Weather columns (present when available)
+  temp_c?: number;
+  cloud_cover_pct?: number;
+  wind_speed_m_s?: number;
+  heating_degree_hours?: number;
+  cooling_degree_hours?: number;
+}
+
+export interface ForecastResponse {
+  rows: ForecastRow[];
+}
+
+export async function fetchForecast(payload: {
+  start: string;
+  end?: string | null;
+  hours?: number | null;
+  states?: string[] | null;
+  assumption_window_hours?: number;
+  weather_adjustment?: boolean;
+  state_locations?: Record<string, { lat: number; lon: number }> | null;
+}): Promise<ForecastResponse> {
+  const endpoint = "/forecast";
+  try {
+    const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        start: payload.start,
+        end: payload.end ?? null,
+        hours: payload.hours ?? null,
+        states: payload.states ?? null,
+        assumption_window_hours: payload.assumption_window_hours ?? 24 * 30,
+        weather_adjustment: payload.weather_adjustment ?? false,
+        state_locations: payload.state_locations ?? null,
       }),
     });
     if (!response.ok) throw new Error(`API error ${response.status}: ${response.statusText}`);

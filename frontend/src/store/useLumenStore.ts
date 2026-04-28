@@ -6,8 +6,10 @@ import { type ZoneData, type TechType } from "../data/zones";
 import {
   fetchCountyMetricsViaJob,
   fetchCountyBrief,
+  fetchForecast,
   fetchHeatmap,
   type HeatmapCell,
+  type ForecastRow,
   submitNaturalLanguageQuery,
   type QueryFilters,
 } from "../lib/api";
@@ -57,6 +59,19 @@ interface LumenState {
   showHeatmap: boolean;
   showZones: boolean;
 
+  // Weather simulation (drives weather-adjusted map/scoring)
+  weatherSimulationEnabled: boolean;
+  simulationWeather: {
+    temp_c: number;
+    cloud_cover_pct: number;
+    wind_speed_m_s: number;
+  };
+
+  // Forecast-driven playback (used to drive map changes smoothly)
+  forecastRows: ForecastRow[];
+  forecastStatus: "idle" | "loading" | "success" | "error";
+  forecastError: string | null;
+
   // Real county scoring cache (from backend /heatmap, keyed by county FIPS)
   countyMetricsByFips: Record<string, HeatmapCell>;
   countyMetricsStatus: "idle" | "loading" | "success" | "error";
@@ -81,6 +96,9 @@ interface LumenState {
   toggleTransmission: () => void;
   toggleHeatmap: () => void;
   toggleZones: () => void;
+  setWeatherSimulationEnabled: (enabled: boolean) => void;
+  setSimulationWeather: (patch: Partial<LumenState["simulationWeather"]>) => void;
+  refreshForecast: () => Promise<void>;
   recalculate: () => void;
   refreshCountyMetrics: () => Promise<void>;
 }
@@ -121,6 +139,17 @@ export const useLumenStore = create<LumenState>((set, get) => ({
   showHeatmap: true,
   showZones: true,
 
+  weatherSimulationEnabled: false,
+  simulationWeather: {
+    temp_c: 18,
+    cloud_cover_pct: 20,
+    wind_speed_m_s: 7,
+  },
+
+  forecastRows: [],
+  forecastStatus: "idle",
+  forecastError: null,
+
   countyMetricsByFips: {},
   countyMetricsStatus: "idle",
   countyMetricsError: null,
@@ -139,9 +168,37 @@ export const useLumenStore = create<LumenState>((set, get) => ({
   },
   setTimeHour: (h) => {
     set({ timeHour: h });
+    // When simulation is enabled, auto-drive the simulation knobs from the latest forecast hour.
+    const { weatherSimulationEnabled, forecastRows } = get();
+    if (weatherSimulationEnabled && forecastRows.length > 0) {
+      const hourIdx = ((Math.floor(h) % 24) + 24) % 24;
+      const row = forecastRows[hourIdx];
+      if (row) {
+        const patch: any = {};
+        if (typeof row.temp_c === "number") patch.temp_c = row.temp_c;
+        if (typeof row.cloud_cover_pct === "number") patch.cloud_cover_pct = row.cloud_cover_pct;
+        if (typeof row.wind_speed_m_s === "number") patch.wind_speed_m_s = row.wind_speed_m_s;
+        if (Object.keys(patch).length > 0) {
+          set((s) => ({ simulationWeather: { ...s.simulationWeather, ...patch } }));
+        }
+      }
+    }
     get().recalculate();
   },
-  setIsLive: (live) => set({ isLive: live }),
+  setIsLive: (live) => {
+    set({ isLive: live });
+    // When switching into Forecast mode, make sure we have forecast rows
+    // and that simulation is enabled so the map visibly updates.
+    if (!live) {
+      const { weatherSimulationEnabled, forecastRows } = get();
+      if (!weatherSimulationEnabled) {
+        set({ weatherSimulationEnabled: true });
+      }
+      if (!forecastRows || forecastRows.length === 0) {
+        void get().refreshForecast();
+      }
+    }
+  },
   setWeights: (w) => {
     set(w);
     get().recalculate();
@@ -350,13 +407,56 @@ export const useLumenStore = create<LumenState>((set, get) => ({
   toggleHeatmap: () => set((s) => ({ showHeatmap: !s.showHeatmap })),
   toggleZones: () => set((s) => ({ showZones: !s.showZones })),
 
+  setWeatherSimulationEnabled: (enabled) => {
+    set({ weatherSimulationEnabled: enabled });
+    if (enabled) void get().refreshForecast();
+    get().recalculate();
+  },
+  setSimulationWeather: (patch) => {
+    set((s) => ({ simulationWeather: { ...s.simulationWeather, ...patch } }));
+    get().recalculate();
+  },
+
+  refreshForecast: async () => {
+    set({ forecastStatus: "loading", forecastError: null });
+    try {
+      // Default: pick a representative state for playback (Texas).
+      // We provide a centroid so backend can fetch Open‑Meteo and include weather columns.
+      const start = new Date();
+      start.setUTCMinutes(0, 0, 0);
+      const startIso = start.toISOString().replace(".000Z", "Z");
+      const resp = await fetchForecast({
+        start: startIso,
+        hours: 24,
+        states: ["TX"],
+        weather_adjustment: true,
+        state_locations: { TX: { lat: 31.5, lon: -99.3 } },
+      });
+      set({ forecastRows: resp.rows, forecastStatus: "success", forecastError: null });
+    } catch (e) {
+      set({
+        forecastStatus: "error",
+        forecastError: e instanceof Error ? e.message : "Failed to fetch forecast",
+      });
+    }
+  },
+
   recalculate: () => {
     // Zones are now driven by real backend scoring; re-fetch when scenario changes.
     void get().refreshCountyMetrics();
   },
 
   refreshCountyMetrics: async () => {
-    const { techType, capex, carbonPrice, weightLcoe, weightRevenue, weightCarbon } = get();
+    const {
+      techType,
+      capex,
+      carbonPrice,
+      weightLcoe,
+      weightRevenue,
+      weightCarbon,
+      weatherSimulationEnabled,
+      simulationWeather,
+    } = get();
     set({ countyMetricsStatus: "loading", countyMetricsError: null });
     try {
       const resp = await fetchHeatmap({
@@ -367,6 +467,8 @@ export const useLumenStore = create<LumenState>((set, get) => ({
         cost_weight: weightLcoe,
         revenue_weight: weightRevenue,
         carbon_weight: weightCarbon,
+        weather_adjustment: weatherSimulationEnabled,
+        simulation_weather: weatherSimulationEnabled ? simulationWeather : null,
       });
       const byFips: Record<string, HeatmapCell> = {};
       for (const cell of resp.cells) {
@@ -374,15 +476,6 @@ export const useLumenStore = create<LumenState>((set, get) => ({
         if (id.startsWith("county_")) {
           const fips = id.replace("county_", "");
           let c = { ...cell };
-          // If wind, dynamically scramble the metrics slightly to strictly differentiate the map from solar
-          // This ensures the "wind" button demonstrably updates the UI with mock/synthetic data.
-          if (techType === "wind") {
-            const mockMod = (parseInt(fips) % 100) / 100; // deterministic pseudo-random 0-1
-            c.score = c.score * (0.6 + mockMod);
-            c.raw_lcoe_usd_per_mwh = c.raw_lcoe_usd_per_mwh * (0.7 + mockMod * 0.5);
-            c.raw_carbon_value_usd_per_mwh = c.raw_carbon_value_usd_per_mwh * (0.5 + mockMod);
-            c.raw_capacity_factor = Math.min(1, c.raw_capacity_factor * (1.2 + mockMod));
-          }
           byFips[fips] = c;
         }
       }

@@ -2,7 +2,10 @@ from __future__ import annotations
 
 from typing import Any
 
-from forecast_future_usage import forecast_from_files
+try:
+    from .forecast_future_usage import forecast_from_files  # type: ignore[import-not-found]
+except Exception:  # pragma: no cover
+    from forecast_future_usage import forecast_from_files
 
 from fastapi import FastAPI
 from pydantic import BaseModel, Field

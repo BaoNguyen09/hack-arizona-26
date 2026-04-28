@@ -22,9 +22,9 @@ import {
 import { useLumenStore } from "../store/useLumenStore";
 import { AnimatedNumber } from "./AnimatedNumber";
 import {
-  generateTimeSeries,
   installedCapacity,
 } from "../data/mockData";
+import { generateFallbackConusSeries } from "../lib/timeseries";
 import {
   CarbonIntensityChart,
   ElectricityMixChart,
@@ -59,7 +59,7 @@ export function LeftSidebar() {
     techType,
   } = useLumenStore();
 
-  const timeSeries = useMemo(() => generateTimeSeries(), []);
+  const timeSeries = useMemo(() => generateFallbackConusSeries(42), []);
 
   // 60fps continuous data interpolation for smooth sidebar metrics
   const currentData = useMemo(() => {
